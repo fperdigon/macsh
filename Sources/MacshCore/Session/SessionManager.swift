@@ -178,6 +178,7 @@ public final class SessionManager: ObservableObject {
 
         let remote = session.remote
         var ephemeralKeyURL: URL? = nil
+        var spawnedProcess: Process? = nil
         var envOverrides: [String: String] = [:]
         var bundle = BackendSecrets()
         var remotePath: String
@@ -265,7 +266,8 @@ public final class SessionManager: ObservableObject {
                     envOverrides: envOverrides
                 )
             }
-            try waitForPort(spawned.port, timeout: 5.0)
+            spawnedProcess = spawned.process
+            try waitForPort(spawned.port, timeout: 30.0)
 
             let mountpoint: String
             switch remote.mountProtocol {
@@ -289,6 +291,7 @@ public final class SessionManager: ObservableObject {
             session.transition(to: .mounted(at: mountpoint))
         } catch {
             if let url = ephemeralKeyURL { try? FileManager.default.removeItem(at: url) }
+            if let proc = spawnedProcess, proc.isRunning { proc.terminate() }
             session.transition(to: .failed(reason: String(describing: error)))
             throw error
         }
