@@ -86,7 +86,7 @@ public final class Mounter {
     /// shape and option keys differ from the WebDAV path — left as a follow-up.
     public func mountNFS(host: String, port: Int, exportPath: String, name: String, mountpoint: String) throws {
         let source = "\(host):\(exportPath)"
-        let opts = "vers=3,tcp,noresvport,port=\(port),mountport=\(port),nolocks,locallocks,soft,timeo=30,nfc,rsize=131072,wsize=131072"
+        let opts = "vers=3,tcp,noresvport,port=\(port),mountport=\(port),nolocks,locallocks,soft,timeo=30,nfc,rsize=1048576,wsize=1048576"
         try run(
             "/sbin/mount_nfs",
             args: ["-o", opts, source, mountpoint],
