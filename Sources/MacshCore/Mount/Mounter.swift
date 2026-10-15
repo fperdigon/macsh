@@ -2,7 +2,7 @@ import Foundation
 import Darwin
 import NetFS
 
-public final class Mounter {
+public class Mounter {
     public enum MountError: LocalizedError {
         case mountpointCreationFailed(String)
         case mountFailed(stderr: String, exitCode: Int32)
