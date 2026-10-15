@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build
+        run: swift build
+
+      - name: Test with coverage
+        run: swift test --enable-code-coverage
+
+      - name: Coverage report
+        run: |
+          PROFDATA="$(swift test --show-codecov-path | xargs dirname)/default.profdata"
+          BUNDLE="$(find .build -name 'MacshCorePackageTests.xctest' -maxdepth 6 | head -1)"
+          BIN="$BUNDLE/Contents/MacOS/MacshCorePackageTests"
+          xcrun llvm-cov report "$BIN" -instr-profile "$PROFDATA" \
+            -ignore-filename-regex '\.build|Tests' | tee coverage.txt
+          {
+            echo '### Test coverage'
+            echo '```'
+            cat coverage.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.txt
