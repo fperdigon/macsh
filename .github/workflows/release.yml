@@ -1,13 +1,13 @@
 name: Release
 
-# - Push a tag like v0.1.3  -> builds DMGs and publishes a regular GitHub Release.
-# - Every night (and on demand) -> builds the latest main and refreshes the
-#   rolling "nightly" pre-release. Skipped when main has no new commits.
+# - Push a tag like v0.1.3     -> builds DMGs and publishes a regular GitHub Release.
+# - Any new commit on main     -> builds DMGs and refreshes the rolling "nightly"
+#   (merged PRs and direct pushes alike)  pre-release.
+# - Manual run                 -> same as a push to the selected branch.
 on:
   push:
+    branches: [main]
     tags: ['v*']
-  schedule:
-    - cron: '17 3 * * *'
   workflow_dispatch:
 
 permissions:
@@ -26,16 +26,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Is there anything new to build?
-        id: gate
-        if: github.event_name == 'schedule'
-        run: |
-          last="$(gh api "repos/${{ github.repository }}/git/ref/tags/nightly" --jq .object.sha 2>/dev/null || true)"
-          if [ "$last" = "$GITHUB_SHA" ]; then
-            echo "Nightly already built from $GITHUB_SHA; skipping."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Check tag matches app version
         if: github.ref_type == 'tag'
         run: |
@@ -46,15 +36,12 @@ jobs:
           fi
 
       - name: Run tests
-        if: steps.gate.outputs.skip != 'true'
         run: swift test
 
       - name: Install xcodegen
-        if: steps.gate.outputs.skip != 'true'
         run: brew install xcodegen
 
       - name: Build DMGs
-        if: steps.gate.outputs.skip != 'true'
         run: ./scripts/build-release.sh
 
       - name: Publish tagged release
@@ -66,7 +53,7 @@ jobs:
             --verify-tag
 
       - name: Publish nightly pre-release
-        if: github.ref_type != 'tag' && steps.gate.outputs.skip != 'true'
+        if: github.ref_type != 'tag'
         run: |
           short="${GITHUB_SHA::7}"
           day="$(date -u +%Y-%m-%d)"
