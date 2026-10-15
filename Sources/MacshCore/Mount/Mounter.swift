@@ -23,7 +23,13 @@ public final class Mounter {
         }
     }
 
-    public init() {}
+    private let mountBase: URL
+
+    /// `mountBase` is where NFS mountpoints are created; defaults to `~/macsh`.
+    public init(mountBase: URL? = nil) {
+        self.mountBase = mountBase
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("macsh", isDirectory: true)
+    }
 
     /// Strips characters that can't appear in a macOS volume name (`/`, `:`, NULs)
     /// but otherwise leaves the user's chosen name alone. NetFS uses the URL path as
@@ -94,7 +100,7 @@ public final class Mounter {
     /// a directory that is a live mount or has content gets a `-2`, `-3`, ... suffix.
     public func resolveMountpoint(name: String) throws -> String {
         let fm = FileManager.default
-        let base = fm.homeDirectoryForCurrentUser.appendingPathComponent("macsh", isDirectory: true)
+        let base = mountBase
         do {
             try fm.createDirectory(at: base, withIntermediateDirectories: true)
         } catch {
