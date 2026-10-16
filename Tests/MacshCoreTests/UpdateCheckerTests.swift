@@ -138,11 +138,19 @@ final class UpdateCheckerTests: XCTestCase {
     private func nightlyList() -> String {
         "[" + [
             release("v0.1.3"),
-            release("nightly-20261015-1111111", name: "Nightly 2026-10-15 (1111111)", prerelease: true, date: "2026-10-15T10:00:00Z"),
-            release("nightly-20261016-2222222", name: "Nightly 2026-10-16 (2222222)", prerelease: true, date: "2026-10-16T10:00:00Z"),
+            release("nightly-20261015-1111111", name: "Nightly", prerelease: true, date: "2026-10-15T10:00:00Z"),
+            release("nightly-20261016-2222222", name: "Nightly", prerelease: true, date: "2026-10-16T10:00:00Z"),
             release("nightly-20261017-3333333", name: "draft", prerelease: true, draft: true, date: "2026-10-17T10:00:00Z"),
             release("v9.9.9-rc", prerelease: true, date: "2026-10-18T10:00:00Z"),
         ].joined(separator: ",") + "]"
+    }
+
+    func testNightlyLabelComesFromTagNotTitle() {
+        func info(_ tag: String) -> ReleaseInfo {
+            try! JSONDecoder().decode(ReleaseInfo.self, from: Data(release(tag, name: "Nightly", prerelease: true).utf8))
+        }
+        XCTAssertEqual(UpdateChecker.nightlyLabel(of: info("nightly-20261016-cd9a562")), "Nightly 2026-10-16 (cd9a562)")
+        XCTAssertEqual(UpdateChecker.nightlyLabel(of: info("nightly-weird")), "Nightly")
     }
 
     func testNightlyOffersNewestNonDraftNightly() async throws {

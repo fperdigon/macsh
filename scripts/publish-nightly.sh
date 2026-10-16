@@ -4,12 +4,13 @@
 # Why one release per commit: with GitHub's "immutable releases" a tag name can never be reused,
 # so the old "delete and recreate the `nightly` release" approach fails from the second build on.
 # Change history is carried forward from the previous nightly's notes, and only the newest
-# KEEP_NIGHTLIES releases are kept (their tags stay, which is harmless).
+# KEEP_NIGHTLIES (default 1, the newest) release is kept; its notes hold the full history. Deleted
+# releases leave their tags behind, which is harmless.
 #
 # Needs: gh (authenticated via GH_TOKEN), GITHUB_SHA, a full git checkout, dist/*.dmg.
 set -euo pipefail
 
-KEEP_NIGHTLIES="${KEEP_NIGHTLIES:-10}"
+KEEP_NIGHTLIES="${KEEP_NIGHTLIES:-1}"
 sha="${GITHUB_SHA:?GITHUB_SHA is required}"
 short="${sha:0:7}"
 day="$(date -u +%Y-%m-%d)"
@@ -38,7 +39,7 @@ if [ -z "$prev_sha" ]; then
 fi
 
 {
-  echo "Automated build of \`main\` at ${short}. Unsigned and unstable; use a tagged release unless you want the latest changes."
+  echo "Automated build of \`main\` from ${day}, commit ${short} (${sha}). Unsigned and unstable; use a tagged release unless you want the latest changes."
   echo "<!-- nightly-sha: ${sha} -->"
   echo
   echo "## Changes (newest first)"
@@ -58,7 +59,7 @@ done
 gh release create "$tag" dist/*.dmg \
   --target "$sha" \
   --prerelease \
-  --title "Nightly ${day} (${short})" \
+  --title "Nightly" \
   --notes-file notes.md
 
 # Keep only the newest nightlies.

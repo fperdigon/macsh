@@ -70,7 +70,7 @@ public struct UpdateChecker {
         if !build.isDevBuild, let sha = Self.nightlySHA(of: newest), build.sha.lowercased().hasPrefix(sha) {
             return .upToDate(current: "nightly \(build.shortSHA)")
         }
-        return .available(try makeUpdate(newest, channel: .nightly, label: newest.name, build: build))
+        return .available(try makeUpdate(newest, channel: .nightly, label: Self.nightlyLabel(of: newest), build: build))
     }
 
     // MARK: - Helpers
@@ -80,6 +80,16 @@ public struct UpdateChecker {
         guard release.tag.hasPrefix("nightly-"), let last = release.tag.split(separator: "-").last,
               last.count >= 7, last.allSatisfy({ $0.isHexDigit }) else { return nil }
         return String(last).lowercased()
+    }
+
+    /// "Nightly 2026-10-16 (abc1234)" from a `nightly-YYYYMMDD-<sha>` tag, because the release
+    /// title is just "Nightly". Falls back to the release name for other tags.
+    public static func nightlyLabel(of release: ReleaseInfo) -> String {
+        let parts = release.tag.split(separator: "-")
+        guard parts.count == 3, parts[0] == "nightly", parts[1].count == 8, parts[1].allSatisfy({ $0.isNumber }),
+              let sha = nightlySHA(of: release) else { return release.name }
+        let d = parts[1]
+        return "Nightly \(d.prefix(4))-\(d.dropFirst(4).prefix(2))-\(d.suffix(2)) (\(sha.prefix(7)))"
     }
 
     /// The DMG for this flavor: `macsh-lite-*.dmg` for lite, `macsh-*.dmg` otherwise.
