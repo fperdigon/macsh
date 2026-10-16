@@ -40,7 +40,7 @@ export_env MACSH_IT_SFTP_DIR "$D/sftp-data"
 
 # ---- FTP ----------------------------------------------------------------------------
 mkdir -p "$D/ftp-data"
-nohup "$D/venv/bin/python" -m pyftpdlib -i 127.0.0.1 -p 2121 -d "$D/ftp-data" -u macsh -P "$PASS" \
+nohup "$D/venv/bin/python" "$(dirname "$0")/ftp_server.py" 2121 macsh "$PASS" "$D/ftp-data" \
   > "$D/ftp.log" 2>&1 &
 for _ in $(seq 1 20); do nc -z 127.0.0.1 2121 && break; sleep 0.5; done
 export_env MACSH_IT_FTP_PORT 2121
