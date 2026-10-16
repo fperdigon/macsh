@@ -39,8 +39,13 @@ CFG
 sudo /usr/sbin/sshd -f "$D/sshd_config" -E "$D/sshd.log"
 for _ in $(seq 1 20); do nc -z 127.0.0.1 2222 && break; sleep 0.5; done
 # Prove both auth methods work before the tests blame macsh.
-ssh -p 2222 -i "$D/id_ed25519" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-  "$SFTP_USER@127.0.0.1" true
+if ! ssh -v -p 2222 -i "$D/id_ed25519" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  "$SFTP_USER@127.0.0.1" true 2> "$D/ssh-client.log"; then
+  echo "--- ssh client"; tail -n 25 "$D/ssh-client.log"
+  echo "--- sshd log"; sudo cat "$D/sshd.log" || true
+  dscl . -read "/Users/$SFTP_USER" || true
+  exit 1
+fi
 export_env MACSH_IT_SFTP_PORT 2222
 export_env MACSH_IT_SFTP_USER "$SFTP_USER"
 export_env MACSH_IT_SFTP_PASS "$PASS"

@@ -82,5 +82,6 @@ jobs:
       - name: Diagnostics
         if: failure()
         run: |
-          tail -n 40 /tmp/macsh-it/sshd.log /tmp/macsh-it/ftp.log /tmp/macsh-it/s3.log || true
+          sudo tail -n 40 /tmp/macsh-it/sshd.log || true
+          tail -n 40 /tmp/macsh-it/ftp.log /tmp/macsh-it/s3.log || true
           mount | grep -i -E "macsh|127.0.0.1" || true
