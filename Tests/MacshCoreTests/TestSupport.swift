@@ -17,6 +17,12 @@ struct FakeRclone {
         if args and args[0] == "obscure":
             print("OBS-" + args[1])
             sys.exit(0)
+        if args and args[0] == "reveal":
+            if args[1].startswith("OBS-"):
+                print(args[1][4:])
+                sys.exit(0)
+            sys.stderr.write("Failed to reveal: input too short when revealing password\\n")
+            sys.exit(1)
         here = os.path.dirname(os.path.abspath(__file__))
         if args and args[0] == "authorize":
             lines = list(args) + ["ENV:RCLONE_DRIVE_SCOPE=" + os.environ.get("RCLONE_DRIVE_SCOPE", "")]

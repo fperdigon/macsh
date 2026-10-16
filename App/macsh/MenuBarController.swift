@@ -11,6 +11,7 @@ final class MenuBarController {
     private var statusItem: NSStatusItem!
     private var cancellables = Set<AnyCancellable>()
     private var addWindow: NSWindow?
+    private var importWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private var editWindows: [UUID: NSWindow] = [:]
     private var logWindows: [UUID: NSWindow] = [:]
@@ -77,6 +78,9 @@ final class MenuBarController {
         let add = NSMenuItem(title: "Add remote…", action: #selector(showAdd), keyEquivalent: "n")
         add.target = self
         menu.addItem(add)
+        let importItem = NSMenuItem(title: "Import from rclone…", action: #selector(showImport), keyEquivalent: "")
+        importItem.target = self
+        menu.addItem(importItem)
         let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
@@ -185,6 +189,18 @@ final class MenuBarController {
             addWindow = win
         }
         Self.present(addWindow)
+    }
+
+    @objc private func showImport() {
+        // Rebuilt each time so it re-reads rclone.conf and starts with a clean selection.
+        let view = ImportRemotesView(manager: manager, prefs: prefs)
+        let host = NSHostingController(rootView: view)
+        let win = NSWindow(contentViewController: host)
+        win.title = "Import from rclone"
+        win.styleMask = [.titled, .closable]
+        win.isReleasedWhenClosed = false
+        importWindow = win
+        Self.present(importWindow)
     }
 
     @objc private func showSettings() {

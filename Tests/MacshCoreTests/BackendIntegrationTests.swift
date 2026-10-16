@@ -178,4 +178,75 @@ final class BackendIntegrationTests: XCTestCase {
         XCTAssertFalse(missing.ok)
         XCTAssertTrue(missing.message.hasPrefix("Folder or bucket not found"), missing.message)
     }
+
+    // MARK: Import from rclone.conf
+
+    /// A rclone.conf with real `rclone obscure`d passwords is imported through macsh, edited
+    /// (rclone.conf has no remote path) and then mounted against the real servers.
+    func testImportFromRcloneConfThenMountEachBackend() async throws {
+        let s = try sftpEnv()
+        let f = try IntegrationEnv.require("MACSH_IT_FTP_PORT", "MACSH_IT_FTP_USER", "MACSH_IT_FTP_PASS", "MACSH_IT_FTP_DIR")
+        let e = try IntegrationEnv.require("MACSH_IT_S3_ENDPOINT", "MACSH_IT_S3_ACCESS", "MACSH_IT_S3_SECRET",
+                                           "MACSH_IT_S3_BUCKET", "MACSH_IT_S3_DIR")
+        let rclone = try RcloneBinary.resolve()
+        let sftpPass = try RcloneProcess.obscure(plaintext: s.pass, binary: rclone)
+        let ftpPass = try RcloneProcess.obscure(plaintext: f["MACSH_IT_FTP_PASS"]!, binary: rclone)
+        let conf = """
+        [it-sftp]
+        type = sftp
+        host = 127.0.0.1
+        port = \(s.port)
+        user = \(s.user)
+        pass = \(sftpPass)
+
+        [it-ftp]
+        type = ftp
+        host = 127.0.0.1
+        port = \(f["MACSH_IT_FTP_PORT"]!)
+        user = \(f["MACSH_IT_FTP_USER"]!)
+        pass = \(ftpPass)
+
+        [it-s3]
+        type = s3
+        provider = Other
+        access_key_id = \(e["MACSH_IT_S3_ACCESS"]!)
+        secret_access_key = \(e["MACSH_IT_S3_SECRET"]!)
+        endpoint = \(e["MACSH_IT_S3_ENDPOINT"]!)
+
+        [it-crypt]
+        type = crypt
+        remote = it-sftp:
+        """
+
+        let dir = try makeTempDir()
+        let manager = SessionManager(
+            store: RemoteStore(directory: dir), keychain: KeychainService(serviceName: "macsh.it.\(UUID().uuidString)"),
+            mounter: Mounter(), logsDir: dir.appendingPathComponent("logs"), rcloneBinary: rclone)
+        addTeardownBlock { @MainActor in
+            manager.shutdownAll()
+            for session in manager.sessions { try? manager.delete(session.id) }
+            try? FileManager.default.removeItem(at: dir)
+        }
+
+        let summary = await manager.importRemotes(RcloneConfParser.parse(conf), defaultProtocol: .webdav,
+                                                  buckets: ["it-s3": e["MACSH_IT_S3_BUCKET"]!])
+        XCTAssertEqual(summary.imported, ["it-sftp", "it-ftp", "it-s3"])
+        XCTAssertEqual(summary.skipped.map(\.name), ["it-crypt"])
+
+        func remote(_ name: String) throws -> Remote {
+            try XCTUnwrap(manager.sessions.first { $0.remote.name == name }).remote
+        }
+
+        // SFTP: point the imported remote at the fixture directory, as a user would in Edit.
+        var sftp = try remote("it-sftp")
+        sftp.backend = .sftp(SFTPConfig(host: "127.0.0.1", port: s.port, user: s.user, remotePath: s.dir, authKind: .password))
+        try manager.update(sftp)
+        try await IntegrationHarness.verifyRoundTrip(manager: manager, remote: sftp, label: "import-sftp",
+                                                     serverSide: IntegrationHarness.readLocal(s.dir))
+        try await IntegrationHarness.verifyRoundTrip(manager: manager, remote: try remote("it-ftp"), label: "import-ftp",
+                                                     serverSide: IntegrationHarness.readLocal(f["MACSH_IT_FTP_DIR"]!))
+        try await IntegrationHarness.verifyRoundTrip(
+            manager: manager, remote: try remote("it-s3"), label: "import-s3",
+            serverSide: IntegrationHarness.readLocal("\(e["MACSH_IT_S3_DIR"]!)/\(e["MACSH_IT_S3_BUCKET"]!)"))
+    }
 }

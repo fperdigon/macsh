@@ -22,6 +22,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Test connection.** A button in the Add/Edit window checks the form's values against
   the server (without saving or mounting) and explains failures: wrong password, host
   unreachable, folder or bucket not found, untrusted certificate.
+- **Import from rclone.conf.** "Import from rclone…" in the menu reads your existing
+  rclone config (SFTP, S3, FTP, WebDAV/Nextcloud, Google Drive), reveals the saved
+  passwords once and stores them in the Keychain. S3 remotes ask for a bucket; other types
+  (crypt, alias, ...) are listed as not supported yet.
 - **Read-only mounts** and an optional **bandwidth limit** per remote (any backend).
 
 ### Changed

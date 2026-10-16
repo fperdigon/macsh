@@ -60,9 +60,20 @@ enum IntegrationHarness {
             try? FileManager.default.removeItem(at: dir)
         }
 
+        try await verifyRoundTrip(manager: manager, remote: remote, label: label,
+                                  readOnly: readOnly, serverSide: serverSide)
+    }
+
+    /// Mount `remote` (already added to `manager`), write a file through the mount, wait for
+    /// `serverSide` to see it (or, when read-only, to never see it), then unmount.
+    static func verifyRoundTrip(
+        manager: SessionManager, remote: Remote, label: String, readOnly: Bool = false,
+        serverSide: @escaping (String) async -> String?
+    ) async throws {
+        let session = try XCTUnwrap(manager.sessions.first { $0.id == remote.id })
         try await manager.mount(remoteID: remote.id)
-        guard case .mounted(let mountpoint) = manager.sessions[0].status else {
-            return XCTFail("\(label): not mounted: \(manager.sessions[0].status)")
+        guard case .mounted(let mountpoint) = session.status else {
+            return XCTFail("\(label): not mounted: \(session.status)")
         }
 
         let fileName = "macsh-\(label)-\(UUID().uuidString).txt"
@@ -92,7 +103,7 @@ enum IntegrationHarness {
         XCTAssertEqual(seen, payload, "\(label): file written through the mount never reached the server")
 
         try await manager.unmount(remoteID: remote.id)
-        XCTAssertEqual(manager.sessions[0].status, .idle)
+        XCTAssertEqual(session.status, .idle)
     }
 
     /// Server-side check for backends whose storage is a local directory.

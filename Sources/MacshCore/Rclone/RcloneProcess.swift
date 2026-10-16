@@ -137,6 +137,32 @@ public final class RcloneProcess {
         return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
+    public enum RevealError: Error, LocalizedError {
+        case failed(String)
+        public var errorDescription: String? {
+            if case .failed(let m) = self { return m.isEmpty ? "rclone reveal failed" : m }
+            return nil
+        }
+    }
+
+    /// Runs `rclone reveal <obscured>` and returns the plaintext (the inverse of `obscure`).
+    public static func reveal(obscured: String, binary: URL) throws -> String {
+        let p = Process()
+        p.executableURL = binary
+        p.arguments = ["reveal", obscured]
+        let out = Pipe(), err = Pipe()
+        p.standardOutput = out
+        p.standardError = err
+        try p.run()
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        let errData = err.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else {
+            throw RevealError.failed(String(decoding: errData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines)
+    }
+
     private static func findFreePort() throws -> Int {
         let sock = socket(AF_INET, SOCK_STREAM, 0)
         guard sock >= 0 else { throw SpawnError.noFreePort }
