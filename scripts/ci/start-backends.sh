@@ -92,7 +92,7 @@ cat > "$D/samba/smb.conf" <<CFG
   read only = no
   valid users = $SMB_USER
 CFG
-printf '%s\n%s\n' "$PASS" "$PASS" | "$SAMBA_PREFIX/bin/smbpasswd" -c "$D/samba/smb.conf" -a -s "$SMB_USER"
+printf '%s\n%s\n' "$PASS" "$PASS" | "$SAMBA_PREFIX/bin/smbpasswd" -L -c "$D/samba/smb.conf" -a -s "$SMB_USER"
 nohup "$SAMBA_PREFIX/sbin/smbd" --foreground --no-process-group -s "$D/samba/smb.conf" > "$D/smb.log" 2>&1 &
 for _ in $(seq 1 30); do nc -z 127.0.0.1 4450 && break; sleep 0.5; done
 nc -z 127.0.0.1 4450 || { echo "Samba did not start"; cat "$D/smb.log"; tail -n 30 "$D"/samba/log.* 2>/dev/null; exit 1; }
