@@ -4,6 +4,25 @@ All notable changes to macsh are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **WebDAV / Nextcloud / ownCloud backend.** Mount any WebDAV server; the
+  password (use an app password for Nextcloud) is kept in the Keychain and
+  passed to rclone through the environment, never written to the config.
+
+### Changed
+
+- **Generic backend model.** New rclone backends are declared as data
+  (`BackendDescriptor`) and stored as `Backend.rclone`, so adding one no longer
+  needs new `switch` arms in `SessionManager` or a hand-written form.
+  Existing SFTP / S3 / FTP remotes and `remotes.json` are unchanged.
+
+### Fixed
+
+- Deleting an S3 remote now also removes its Keychain items.
+
 ## [0.1.3] — 2026-10-16
 
 ### Added

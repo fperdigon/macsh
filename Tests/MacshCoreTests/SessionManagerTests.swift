@@ -279,6 +279,54 @@ final class SessionManagerTests: XCTestCase {
         try await f.manager.unmount(remoteID: r.id)
     }
 
+    // MARK: - Generic rclone backend (WebDAV)
+
+    func testAddAndUpdateStoreGenericOptionSecrets() throws {
+        let f = try makeFixture()
+        let r = makeRemote(backend: webdavBackend())
+        try f.manager.add(r, optionSecrets: ["pass": "apppw"])
+        XCTAssertEqual(try f.keychain.get(remoteID: r.id, kind: .option("pass")), "apppw")
+
+        try f.manager.update(r, optionSecrets: ["pass": ""])
+        XCTAssertEqual(try f.keychain.get(remoteID: r.id, kind: .option("pass")), "apppw", "blank keeps existing")
+        try f.manager.update(r, optionSecrets: ["pass": "newpw"])
+        XCTAssertEqual(try f.keychain.get(remoteID: r.id, kind: .option("pass")), "newpw")
+    }
+
+    func testDeleteRemovesGenericAndS3Secrets() throws {
+        let f = try makeFixture()
+        let w = makeRemote(backend: webdavBackend())
+        let s3 = makeRemote(backend: s3Backend())
+        try f.manager.add(w, optionSecrets: ["pass": "pw"])
+        try f.manager.add(s3, s3Secrets: S3Secrets(accessKeyID: "AK", secretAccessKey: "SK"))
+        try f.manager.delete(w.id)
+        try f.manager.delete(s3.id)
+        XCTAssertNil(try f.keychain.get(remoteID: w.id, kind: .option("pass")))
+        XCTAssertNil(try f.keychain.get(remoteID: s3.id, kind: .s3AccessKeyID))
+        XCTAssertNil(try f.keychain.get(remoteID: s3.id, kind: .s3SecretAccessKey))
+    }
+
+    func testMountWebDAVBackendObscuresPasswordAndServesRemotePath() async throws {
+        let f = try makeFixture()
+        let r = makeRemote(backend: webdavBackend(remotePath: "docs"))
+        try f.manager.add(r, optionSecrets: ["pass": "apppw"])
+        try await f.manager.mount(remoteID: r.id)
+
+        let lines = f.rclone.recordedLines()
+        XCTAssertTrue(lines.contains("ENV:RCLONE_CONFIG_R_PASS=OBS-apppw"))
+        XCTAssertTrue(lines.contains("r:docs"))
+        try await f.manager.unmount(remoteID: r.id)
+    }
+
+    func testMountWebDAVBackendMissingSecretFails() async throws {
+        let f = try makeFixture()
+        let r = makeRemote(backend: webdavBackend())
+        try f.manager.add(r)
+        let error = await thrownError { try await f.manager.mount(remoteID: r.id) }
+        XCTAssertEqual(error as? RcloneConfigError, .missingSecret("pass"))
+        if case .failed = f.manager.sessions[0].status {} else { XCTFail("expected failed status") }
+    }
+
     func testMountNFSUsesResolvedMountpoint() async throws {
         let f = try makeFixture()
         let r = makeRemote(name: "nfsbox", backend: sftpBackend(), proto: .nfs)
