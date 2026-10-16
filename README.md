@@ -88,3 +88,11 @@ Bug reports and PRs welcome. Especially useful right now:
 ## License
 
 [Apache License 2.0](LICENSE) © 2026 Ayon Pal
+
+## Updates
+
+macsh checks GitHub for a new version about once a day and offers to install it
+(Settings -> Updates, or "Check for updates..." in the menu). Choose **Stable releases**
+(tagged `vX.Y.Z`) or **Nightly builds** (one per commit on `main`). The download is verified
+against its published SHA-256, then the app is replaced in place and relaunched. macsh must be
+installed in a folder you can write to (normally `/Applications`).
