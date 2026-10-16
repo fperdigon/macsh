@@ -39,7 +39,7 @@ if [ -z "$prev_sha" ]; then
 fi
 
 {
-  echo "Automated build of \`main\` at ${short}. Unsigned and unstable; use a tagged release unless you want the latest changes."
+  echo "Automated build of \`main\` from ${day}, commit ${short} (${sha}). Unsigned and unstable; use a tagged release unless you want the latest changes."
   echo "<!-- nightly-sha: ${sha} -->"
   echo
   echo "## Changes (newest first)"
@@ -59,7 +59,7 @@ done
 gh release create "$tag" dist/*.dmg \
   --target "$sha" \
   --prerelease \
-  --title "Nightly ${day} (${short})" \
+  --title "Nightly" \
   --notes-file notes.md
 
 # Keep only the newest nightlies.
