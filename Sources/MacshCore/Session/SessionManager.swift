@@ -61,8 +61,8 @@ public final class SessionManager: ObservableObject {
     /// SIGKILL/crash — without this, every relaunch would pile up `<name>-1`,
     /// `<name>-2`, … entries in /Volumes since NetFS auto-numbers collisions.
     public func autoMountAll() {
-        let volnames = sessions.map { mounter.volumeName(from: $0.remote.name) }
         let mounter = self.mounter
+        let volnames = sessions.map { mounter.volumeName(from: $0.remote.name) }
         Task { @MainActor [weak self] in
             // pgrep / mount / diskutil: keep them off the main thread.
             try? await Self.offMain { for v in volnames { mounter.reconcileStaleMount(volumeName: v) } }
