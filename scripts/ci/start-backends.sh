@@ -4,6 +4,7 @@
 #   SFTP: asyncssh server on port 2222, password + key auth
 #   FTP : pyftpdlib (pip, in a venv)
 #   S3  : `rclone serve s3` (S3 protocol server backed by a directory)
+#   SMB : Samba (smbd, unprivileged) on port 4450
 set -euo pipefail
 
 D=/tmp/macsh-it
@@ -58,4 +59,49 @@ export_env MACSH_IT_S3_ACCESS macshak
 export_env MACSH_IT_S3_SECRET "$PASS"
 export_env MACSH_IT_S3_BUCKET bkt
 export_env MACSH_IT_S3_DIR "$D/s3-data"
+# ---- SMB ----------------------------------------------------------------------------
+# Samba (real SMB server) running unprivileged as the current user on port 4450.
+brew list samba >/dev/null 2>&1 || brew install samba
+SAMBA_PREFIX="$(brew --prefix samba)"
+SMB_USER="$(id -un)"
+mkdir -p "$D/smb-data" "$D/samba"/{private,lock,state,cache,run,ncalrpc}
+cat > "$D/samba/smb.conf" <<CFG
+[global]
+  workgroup = WORKGROUP
+  server role = standalone server
+  security = user
+  map to guest = never
+  smb ports = 4450
+  interfaces = 127.0.0.1
+  bind interfaces only = yes
+  server min protocol = SMB2
+  passdb backend = tdbsam:$D/samba/private/passdb.tdb
+  private dir = $D/samba/private
+  lock directory = $D/samba/lock
+  state directory = $D/samba/state
+  cache directory = $D/samba/cache
+  pid directory = $D/samba/run
+  ncalrpc dir = $D/samba/ncalrpc
+  log file = $D/samba/log.%m
+  load printers = no
+  disable spoolss = yes
+  printcap name = /dev/null
+  printing = bsd
+[macshshare]
+  path = $D/smb-data
+  read only = no
+  valid users = $SMB_USER
+CFG
+# Adding a Samba user needs root (local mode); the server itself then runs as this user.
+printf '%s\n%s\n' "$PASS" "$PASS" | sudo "$SAMBA_PREFIX/bin/smbpasswd" -L -c "$D/samba/smb.conf" -a -s "$SMB_USER"
+sudo chown -R "$SMB_USER" "$D/samba"
+# Homebrew installs smbd as samba-dot-org-smbd to avoid clashing with macOS's own.
+nohup "$SAMBA_PREFIX/sbin/samba-dot-org-smbd" --foreground --no-process-group -s "$D/samba/smb.conf" > "$D/smb.log" 2>&1 &
+for _ in $(seq 1 30); do nc -z 127.0.0.1 4450 && break; sleep 0.5; done
+nc -z 127.0.0.1 4450 || { echo "Samba did not start"; cat "$D/smb.log"; tail -n 30 "$D"/samba/log.* 2>/dev/null; exit 1; }
+export_env MACSH_IT_SMB_PORT 4450
+export_env MACSH_IT_SMB_USER "$SMB_USER"
+export_env MACSH_IT_SMB_PASS "$PASS"
+export_env MACSH_IT_SMB_SHARE macshshare
+export_env MACSH_IT_SMB_DIR "$D/smb-data"
 echo "backends up"

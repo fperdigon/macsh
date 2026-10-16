@@ -360,7 +360,8 @@ public final class SessionManager: ObservableObject {
     public func importRemotes(
         _ sections: [RcloneConfSection],
         defaultProtocol: MountProtocol,
-        buckets: [String: String] = [:]
+        buckets: [String: String] = [:],
+        sharePaths: [String: String] = [:]
     ) async -> ImportSummary {
         let binary = rcloneBinary
         var summary = ImportSummary()
@@ -382,6 +383,13 @@ public final class SessionManager: ObservableObject {
                     imported.setBucket(buckets[section.name] ?? "")
                     if imported.needsBucket {
                         summary.skipped.append(.init(name: section.name, reason: "A bucket name is required"))
+                        continue
+                    }
+                }
+                if imported.needsRemotePath {
+                    imported.setSharePath(sharePaths[section.name] ?? "")
+                    if imported.needsRemotePath {
+                        summary.skipped.append(.init(name: section.name, reason: "A share name is required"))
                         continue
                     }
                 }

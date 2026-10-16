@@ -284,3 +284,66 @@ final class RcloneConfImportManagerTests: XCTestCase {
         }
     }
 }
+
+final class RcloneConfImporterSMBTests: XCTestCase {
+    private let reveal: (String) throws -> String = { String($0.dropFirst(4)) }
+
+    private func convert(_ options: [String: String]) -> ImportOutcome {
+        RcloneConfImporter.convert(RcloneConfSection(name: "nas", type: "smb", options: options),
+                                   defaultProtocol: .webdav, reveal: reveal, home: "/h")
+    }
+
+    func testSMBSectionNeedsAShare() throws {
+        guard case .ready(var r) = convert(["host": "nas", "user": "bob", "pass": "OBS-pw", "domain": "HOME", "spn": "x"]) else {
+            return XCTFail("expected ready")
+        }
+        XCTAssertTrue(r.needsRemotePath)
+        XCTAssertEqual(r.options, ["pass": "pw"])
+        XCTAssertEqual(r.ignoredOptions, ["spn"])
+        guard case .rclone(let cfg) = r.remote.backend else { return XCTFail() }
+        XCTAssertEqual(cfg.type, "smb")
+        XCTAssertEqual(cfg.options, ["host": "nas", "port": "445", "user": "bob", "domain": "HOME"])
+        r.setSharePath(" media/photos ")
+        XCTAssertFalse(r.needsRemotePath)
+        guard case .rclone(let after) = r.remote.backend else { return XCTFail() }
+        XCTAssertEqual(after.remotePath, "media/photos")
+        r.setSharePath("")
+        XCTAssertTrue(r.needsRemotePath)
+    }
+
+    func testSMBInvalidPortFallsBackAndMissingPartsAreUnsupported() {
+        guard case .ready(let r) = convert(["host": "nas", "user": "u", "pass": "OBS-x", "port": "abc"]),
+              case .rclone(let cfg) = r.remote.backend else { return XCTFail() }
+        XCTAssertEqual(cfg.options["port"], "445")
+        if case .unsupported(let m) = convert(["user": "u", "pass": "OBS-x"]) { XCTAssertEqual(m, "The SMB host is missing") }
+        else { XCTFail() }
+        if case .unsupported = convert(["host": "nas"]) {} else { XCTFail() }
+    }
+}
+
+@MainActor
+final class RcloneConfImportSMBManagerTests: XCTestCase {
+    func testImportRequiresAndAppliesTheShare() async throws {
+        try FakeRclone.requirePython()
+        let dir = try makeTempDir()
+        let rclone = try FakeRclone.make(in: dir)
+        let kc = KeychainService(serviceName: "macsh.tests.\(UUID().uuidString)")
+        let m = SessionManager(store: RemoteStore(directory: dir), keychain: kc,
+                               mounter: Mounter(), logsDir: dir.appendingPathComponent("logs"), rcloneBinary: rclone.binary)
+        addTeardownBlock { @MainActor in
+            for s in m.sessions { try? m.delete(s.id) }
+            try? FileManager.default.removeItem(at: dir)
+        }
+        let sections = RcloneConfParser.parse("[nas]\ntype = smb\nhost = nas\nuser = bob\npass = OBS-pw\n")
+
+        let skipped = await m.importRemotes(sections, defaultProtocol: .nfs)
+        XCTAssertEqual(skipped.skipped.first?.reason, "A share name is required")
+        XCTAssertTrue(m.sessions.isEmpty)
+
+        let ok = await m.importRemotes(sections, defaultProtocol: .nfs, sharePaths: ["nas": "media"])
+        XCTAssertEqual(ok.imported, ["nas"])
+        guard case .rclone(let cfg) = m.sessions[0].remote.backend else { return XCTFail() }
+        XCTAssertEqual(cfg.remotePath, "media")
+        XCTAssertEqual(try kc.get(remoteID: m.sessions[0].id, kind: .option("pass")), "pw")
+    }
+}

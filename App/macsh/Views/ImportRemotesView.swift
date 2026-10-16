@@ -13,6 +13,7 @@ struct ImportRemotesView: View {
     @State private var sections: [RcloneConfSection] = []
     @State private var selected: Set<String> = []
     @State private var buckets: [String: String] = [:]
+    @State private var shares: [String: String] = [:]
     @State private var message: String?
     @State private var importing = false
     @State private var summary: SessionManager.ImportSummary?
@@ -102,6 +103,12 @@ struct ImportRemotesView: View {
             }
             if !supported {
                 Text("Not supported by macsh yet").font(.caption).foregroundStyle(.secondary)
+            } else if section.type == "smb" && selected.contains(section.name) {
+                TextField("", text: Binding(
+                    get: { shares[section.name] ?? "" },
+                    set: { shares[section.name] = $0 }
+                ), prompt: Text("Share name, e.g. media or media/photos (required)"))
+                    .textFieldStyle(.roundedBorder)
             } else if section.type == "s3" && selected.contains(section.name) {
                 TextField("", text: Binding(
                     get: { buckets[section.name] ?? "" },
@@ -155,7 +162,7 @@ struct ImportRemotesView: View {
             return
         }
         sections = RcloneConfParser.parse(text)
-        selected = Set(sections.filter { RcloneConfImporter.isSupported(type: $0.type) && $0.type != "s3" }.map(\.name))
+        selected = Set(sections.filter { RcloneConfImporter.isSupported(type: $0.type) && $0.type != "s3" && $0.type != "smb" }.map(\.name))
         if sections.isEmpty { message = "No remotes found in this file." }
     }
 
@@ -163,7 +170,8 @@ struct ImportRemotesView: View {
         importing = true
         let chosen = sections.filter { selected.contains($0.name) }
         Task { @MainActor in
-            summary = await manager.importRemotes(chosen, defaultProtocol: prefs.defaultProtocol, buckets: buckets)
+            summary = await manager.importRemotes(chosen, defaultProtocol: prefs.defaultProtocol, buckets: buckets,
+                                                    sharePaths: shares)
             importing = false
         }
     }

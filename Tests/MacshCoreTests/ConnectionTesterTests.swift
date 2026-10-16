@@ -12,6 +12,9 @@ final class ConnectionTesterExplainTests: XCTestCase {
             "SignatureDoesNotMatch: The request signature we calculated does not match",
             "error listing: 401 Unauthorized",
             "oauth2: cannot fetch token: invalid_grant",
+            "smb: failed to connect: NT Status Error: STATUS_LOGON_FAILURE",
+            // Verbatim from rclone against Samba (CI) after a wrong password:
+            "ERROR : error listing: couldn't connect SMB: response error: The attempted logon is invalid. This is either due to a bad username or authentication information.",
         ]
         for s in samples {
             XCTAssertTrue(explain(s).hasPrefix("Authentication failed"), s)
@@ -28,6 +31,7 @@ final class ConnectionTesterExplainTests: XCTestCase {
 
     func testMissingFolderAndCertificate() {
         XCTAssertTrue(explain("directory not found").hasPrefix("Folder or bucket not found"))
+        XCTAssertTrue(explain("tree connect failed: STATUS_BAD_NETWORK_NAME").hasPrefix("Folder or bucket not found"))
         XCTAssertTrue(explain("NoSuchBucket: The specified bucket does not exist").hasPrefix("Folder or bucket not found"))
         XCTAssertTrue(explain("tls: failed to verify certificate: x509: certificate signed by unknown authority").hasPrefix("TLS certificate"))
     }
@@ -65,6 +69,7 @@ final class ConnectionTesterRunTests: XCTestCase {
         let r = ConnectionTester.run(binary: rclone.binary, configText: "[r]\ntype = ftp\n", remotePath: "", env: [:])
         XCTAssertFalse(r.ok)
         XCTAssertTrue(r.message.hasPrefix("Authentication failed"), r.message)
+        XCTAssertEqual(r.detail, "Couldn't connect: 530 Login incorrect")
     }
 
     func testTimeoutIsReported() throws {

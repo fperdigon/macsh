@@ -29,6 +29,7 @@ Your remote files, in Finder. Open, edit, drag — like any folder on your Mac.
 - **S3-compatible** — AWS, Cloudflare R2, Backblaze B2, Wasabi, MinIO, DigitalOcean Spaces, custom endpoints.
 - **FTP / FTPS** — explicit or implicit TLS.
 - **WebDAV / Nextcloud / ownCloud** — URL, user and (app) password.
+- **SMB / Windows shares** — NAS, Samba and Windows shares by host, user, password and share name.
 - **Google Drive** — browser sign-in; optional shared drive, root folder and your own OAuth client.
 - **Live updates** — changes on the server show up in seconds.
 - **Auto-mount at login.**

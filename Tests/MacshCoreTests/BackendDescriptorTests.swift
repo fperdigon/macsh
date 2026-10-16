@@ -150,3 +150,50 @@ final class GoogleDriveDescriptorTests: XCTestCase {
         XCTAssertFalse(cfg.contains("token"))
     }
 }
+
+final class SMBDescriptorTests: XCTestCase {
+    private let d = BackendDescriptor.smb
+    private let valid = ["host": "nas.local", "port": "445", "user": "bob", "pass": "pw", "domain": ""]
+
+    func testRegistryAndDefaults() {
+        XCTAssertEqual(BackendDescriptor.descriptor(forType: "smb"), .smb)
+        XCTAssertEqual(d.defaultValues["port"], "445")
+        XCTAssertTrue(d.remotePathRequired)
+        XCTAssertFalse(BackendDescriptor.webdav.remotePathRequired)
+    }
+
+    func testRequiredFieldsAndPortRange() {
+        XCTAssertNil(d.validate(values: valid, isEditing: false))
+        var v = valid; v["host"] = ""
+        XCTAssertEqual(d.validate(values: v, isEditing: false), "Host required")
+        v = valid; v["pass"] = ""
+        XCTAssertEqual(d.validate(values: v, isEditing: false), "Password required")
+        XCTAssertNil(d.validate(values: v, isEditing: true), "blank password keeps the saved one")
+        for bad in ["0", "65536", "abc", "-1", "44 5"] {
+            v = valid; v["port"] = bad
+            XCTAssertEqual(d.validate(values: v, isEditing: false), "Port must be 1-65535", bad)
+        }
+        v = valid; v["port"] = ""
+        XCTAssertNil(d.validate(values: v, isEditing: false), "empty port falls back to rclone's default")
+    }
+
+    func testShareIsRequired() {
+        XCTAssertEqual(d.validateRemotePath(""), "Share required")
+        XCTAssertEqual(d.validateRemotePath("   "), "Share required")
+        XCTAssertNil(d.validateRemotePath("media"))
+        XCTAssertNil(d.validateRemotePath("media/photos"))
+        XCTAssertNil(BackendDescriptor.webdav.validateRemotePath(""))
+    }
+
+    func testConfigKeepsPasswordOutOfOptions() {
+        var v = valid; v["domain"] = "HOME"
+        let cfg = d.makeConfig(values: v, remotePath: "media/photos")
+        XCTAssertEqual(cfg.type, "smb")
+        XCTAssertEqual(cfg.options, ["host": "nas.local", "port": "445", "user": "bob", "domain": "HOME"])
+        XCTAssertEqual(cfg.secretOptions, [RcloneSecretOption(name: "pass", obscure: true)])
+        XCTAssertEqual(cfg.remotePath, "media/photos")
+        let text = try? RcloneConfigBuilder.build(
+            remote: makeRemote(backend: .rclone(cfg)), secrets: BackendSecrets(options: ["pass": "SECRET"]))
+        XCTAssertEqual(text, "[r]\ntype = smb\ndomain = HOME\nhost = nas.local\nport = 445\nuser = bob\n")
+    }
+}
