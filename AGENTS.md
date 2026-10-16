@@ -87,8 +87,8 @@ environment without macOS, open a PR and let CI be the judge.
    - Use `IntegrationHarness.roundTrip` and `IntegrationEnv.require` from
      `IntegrationSupport.swift`; tests skip when their variables are unset.
    - Current coverage: SFTP, FTP, S3 (`BackendIntegrationTests`) and Nextcloud/WebDAV
-     (`NextcloudIntegrationTests`), SMB (`BackendIntegrationTests`), plus Google Drive (`GoogleDriveIntegrationTests`, needs the
-     `MACSH_IT_GDRIVE_TOKEN` repository secret; they skip without it). Known gaps: FTPS/TLS, passphrase-protected keys, real
+     (`NextcloudIntegrationTests`), SMB (`BackendIntegrationTests`), Azure Blob against Azurite and the raw-options escape hatch (`AzureIntegrationTests`), plus Google Drive (`GoogleDriveIntegrationTests`, needs the
+     `MACSH_IT_GDRIVE_TOKEN` repository secret; they skip without it). Backblaze B2 and Google Cloud Storage have no emulator and run only with test-account secrets (`NativeCloudAccountTests`). Known gaps: FTPS/TLS, passphrase-protected keys, real
      cloud providers (OAuth backends such as Google Drive will need a stand-in server or
      a test-account secret; document the choice in the PR).
 3. **New code must be at least 80% covered.** CI fails a pull request when less than 80% of the

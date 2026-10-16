@@ -197,3 +197,99 @@ final class SMBDescriptorTests: XCTestCase {
         XCTAssertEqual(text, "[r]\ntype = smb\ndomain = HOME\nhost = nas.local\nport = 445\nuser = bob\n")
     }
 }
+
+final class NativeCloudDescriptorTests: XCTestCase {
+    func testRegistry() {
+        XCTAssertEqual(BackendDescriptor.descriptor(forType: "azureblob"), .azureBlob)
+        XCTAssertEqual(BackendDescriptor.descriptor(forType: "b2"), .backblazeB2)
+        XCTAssertEqual(BackendDescriptor.descriptor(forType: "google cloud storage"), .googleCloudStorage)
+        for d in [BackendDescriptor.azureBlob, .backblazeB2, .googleCloudStorage] {
+            XCTAssertTrue(d.remotePathRequired, d.type)
+        }
+    }
+
+    func testAzureKeepsKeyOutOfOptions() {
+        let d = BackendDescriptor.azureBlob
+        let v = ["account": "acct", "key": "SECRETKEY", "endpoint": ""]
+        XCTAssertNil(d.validate(values: v, isEditing: false))
+        let cfg = d.makeConfig(values: v, remotePath: "box")
+        XCTAssertEqual(cfg.options, ["account": "acct"])
+        XCTAssertEqual(cfg.secretOptions.map(\.name), ["key"])
+        XCTAssertFalse(cfg.secretOptions[0].obscure)
+        XCTAssertEqual(d.validate(values: ["account": "a", "key": ""], isEditing: false), "Account key required")
+        XCTAssertEqual(d.validate(values: ["account": "a", "key": "k", "endpoint": "ftp://x"], isEditing: false),
+                       "Endpoint must be an http:// or https:// URL")
+    }
+
+    func testB2AndGCSSecrets() {
+        let b2 = BackendDescriptor.backblazeB2.makeConfig(values: ["account": "id", "key": "k"], remotePath: "bkt")
+        XCTAssertEqual(b2.type, "b2")
+        XCTAssertEqual(b2.options, ["account": "id"])
+        let g = BackendDescriptor.googleCloudStorage
+        let cfg = g.makeConfig(values: ["service_account_credentials": "{\"a\":1}", "project_number": "42"], remotePath: "b")
+        XCTAssertEqual(cfg.options, ["project_number": "42"])
+        XCTAssertEqual(cfg.secretOptions.map(\.name), ["service_account_credentials"])
+        let text = try! RcloneConfigBuilder.build(
+            remote: Remote(id: UUID(), name: "g", backend: .rclone(cfg), mountProtocol: .webdav, autoMount: false),
+            secrets: BackendSecrets(options: ["service_account_credentials": "{\"a\":1}"]))
+        XCTAssertTrue(text.contains("type = google cloud storage"))
+        XCTAssertFalse(text.contains("\"a\""))
+    }
+}
+
+final class RawBackendInputTests: XCTestCase {
+    func testParsesLinesCommentsAndEqualsInValues() throws {
+        let p = try RawBackendInput.parse("# c\n\nregion = eu=1\n  use_emulator=true ")
+        XCTAssertEqual(p.map(\.key), ["region", "use_emulator"])
+        XCTAssertEqual(p.map(\.value), ["eu=1", "true"])
+    }
+
+    func testParseErrors() {
+        XCTAssertThrowsError(try RawBackendInput.parse("nothing")) { XCTAssertEqual($0 as? RawBackendError, .badLine(1)) }
+        XCTAssertThrowsError(try RawBackendInput.parse("Bad-Key = 1")) { XCTAssertEqual($0 as? RawBackendError, .badKey("Bad-Key")) }
+        XCTAssertThrowsError(try RawBackendInput.parse("a=1\na=2")) { XCTAssertEqual($0 as? RawBackendError, .duplicate("a")) }
+        XCTAssertEqual(RawBackendError.badLine(3).message, "Line 3 must look like name = value")
+        XCTAssertTrue(RawBackendError.badKey("X").message.contains("\"X\""))
+        XCTAssertTrue(RawBackendError.duplicate("a").message.contains("twice"))
+    }
+
+    func testValidation() {
+        var r = RawBackendInput(type: "azureblob", plainText: "account = a", secretText: "key = k")
+        XCTAssertNil(r.validate(isEditing: false))
+        r.type = " "; XCTAssertEqual(r.validate(isEditing: false), "Backend type required")
+        r.type = "Azure!"; XCTAssertNotNil(r.validate(isEditing: false))
+        r = RawBackendInput(type: "b2", plainText: "key = k")
+        XCTAssertTrue(r.validate(isEditing: false)!.contains("looks like a secret"))
+        r = RawBackendInput(type: "b2", plainText: "type = s3")
+        XCTAssertTrue(r.validate(isEditing: false)!.contains("type field"))
+        r = RawBackendInput(type: "b2", secretText: "type = s3")
+        XCTAssertTrue(r.validate(isEditing: false)!.contains("type field"))
+        r = RawBackendInput(type: "b2", plainText: "account = 1", secretText: "account = 2")
+        XCTAssertTrue(r.validate(isEditing: false)!.contains("plain and secret"))
+        r = RawBackendInput(type: "b2", secretText: "app_secret =")
+        XCTAssertTrue(r.validate(isEditing: false)!.contains("no value"))
+        XCTAssertNil(r.validate(isEditing: true))
+        r = RawBackendInput(type: "b2", plainText: "oops")
+        XCTAssertEqual(r.validate(isEditing: false), "Line 1 must look like name = value")
+    }
+
+    func testSecretsNeverReachPlainOptions() throws {
+        let r = RawBackendInput(type: "azureblob", plainText: "account = a\nendpoint =", secretText: "sas_url = https://x?sig=1",
+                                remotePath: " box ")
+        let (cfg, secrets) = try r.makeConfig()
+        XCTAssertEqual(cfg.options, ["account": "a"])
+        XCTAssertEqual(cfg.secretOptions.map(\.name), ["sas_url"])
+        XCTAssertEqual(secrets, ["sas_url": "https://x?sig=1"])
+        XCTAssertEqual(cfg.remotePath, "box")
+        let json = String(data: try JSONEncoder().encode(cfg), encoding: .utf8)!
+        XCTAssertFalse(json.contains("sig=1"))
+        XCTAssertEqual(RawBackendInput.plainText(of: cfg), "account = a")
+    }
+
+    func testEditingKeepsSavedSecretNames() throws {
+        let saved = [RcloneSecretOption(name: "key", obscure: false)]
+        let (cfg, secrets) = try RawBackendInput(type: "b2", plainText: "account = a").makeConfig(keeping: saved)
+        XCTAssertEqual(cfg.secretOptions, saved)
+        XCTAssertTrue(secrets.isEmpty)
+    }
+}

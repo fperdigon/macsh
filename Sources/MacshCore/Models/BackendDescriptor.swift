@@ -198,7 +198,50 @@ public struct BackendDescriptor: Equatable {
         remotePathRequired: true
     )
 
-    public static let all: [BackendDescriptor] = [.webdav, .googleDrive, .smb]
+    /// Azure Blob Storage. The container is the first path component.
+    public static let azureBlob = BackendDescriptor(
+        type: "azureblob",
+        displayName: "Azure Blob Storage",
+        fields: [
+            BackendField(key: "account", label: "Storage account", required: true, placeholder: "mystorageaccount"),
+            BackendField(key: "key", label: "Account key", kind: .secret, required: true),
+            BackendField(key: "endpoint", label: "Endpoint", kind: .url, placeholder: "optional, e.g. a local emulator"),
+        ],
+        remotePathLabel: "Container",
+        remotePathPlaceholder: "container or container/folder",
+        remotePathRequired: true
+    )
+
+    /// Backblaze B2 through its native API (the S3-compatible API is the S3 backend).
+    public static let backblazeB2 = BackendDescriptor(
+        type: "b2",
+        displayName: "Backblaze B2",
+        fields: [
+            BackendField(key: "account", label: "Key ID", required: true, placeholder: "application key ID"),
+            BackendField(key: "key", label: "Application key", kind: .secret, required: true),
+            BackendField(key: "endpoint", label: "Endpoint", kind: .url, placeholder: "optional"),
+        ],
+        remotePathLabel: "Bucket",
+        remotePathPlaceholder: "bucket or bucket/folder",
+        remotePathRequired: true
+    )
+
+    /// Google Cloud Storage with a service-account key (the JSON file's content).
+    public static let googleCloudStorage = BackendDescriptor(
+        type: "google cloud storage",
+        displayName: "Google Cloud Storage",
+        fields: [
+            BackendField(key: "service_account_credentials", label: "Service account JSON", kind: .secret,
+                         required: true, placeholder: "paste the key file content"),
+            BackendField(key: "project_number", label: "Project number", placeholder: "needed to list buckets"),
+            BackendField(key: "endpoint", label: "Endpoint", kind: .url, placeholder: "optional"),
+        ],
+        remotePathLabel: "Bucket",
+        remotePathPlaceholder: "bucket or bucket/folder",
+        remotePathRequired: true
+    )
+
+    public static let all: [BackendDescriptor] = [.webdav, .googleDrive, .smb, .azureBlob, .backblazeB2, .googleCloudStorage]
 
     public static func descriptor(forType type: String) -> BackendDescriptor? {
         all.first { $0.type == type }

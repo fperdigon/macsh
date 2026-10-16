@@ -8,6 +8,11 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Azure Blob, Backblaze B2 (native API) and Google Cloud Storage backends**, declared
+  as descriptors; account keys and service-account JSON stay in the Keychain.
+- **"Other rclone backend" escape hatch.** Any rclone backend by type, with plain options
+  and secret options in separate boxes. Plain options that look like secrets are rejected;
+  secret ones go to the Keychain and reach rclone only through the environment.
 - **WebDAV / Nextcloud / ownCloud backend.** Mount any WebDAV server; the
   password (use an app password for Nextcloud) is kept in the Keychain and
   passed to rclone through the environment, never written to the config.

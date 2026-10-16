@@ -2,7 +2,7 @@ import SwiftUI
 import MacshCore
 
 enum AddBackendKind: String, CaseIterable, Identifiable {
-    case sftp, s3, ftp, webdav, gdrive, smb
+    case sftp, s3, ftp, webdav, gdrive, smb, azure, b2, gcs, other
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -12,6 +12,23 @@ enum AddBackendKind: String, CaseIterable, Identifiable {
         case .webdav: return BackendDescriptor.webdav.displayName
         case .gdrive: return BackendDescriptor.googleDrive.displayName
         case .smb: return BackendDescriptor.smb.displayName
+        case .azure: return BackendDescriptor.azureBlob.displayName
+        case .b2: return BackendDescriptor.backblazeB2.displayName
+        case .gcs: return BackendDescriptor.googleCloudStorage.displayName
+        case .other: return "Other rclone backend"
+        }
+    }
+
+    /// Descriptor-driven kinds (everything but SFTP/S3/FTP and the raw escape hatch).
+    var descriptor: BackendDescriptor? {
+        switch self {
+        case .webdav: return .webdav
+        case .gdrive: return .googleDrive
+        case .smb: return .smb
+        case .azure: return .azureBlob
+        case .b2: return .backblazeB2
+        case .gcs: return .googleCloudStorage
+        case .sftp, .s3, .ftp, .other: return nil
         }
     }
 }
@@ -30,9 +47,8 @@ struct AddRemoteView: View {
     @State private var sftp: SFTPFormDraft
     @State private var s3: S3FormDraft
     @State private var ftp: FTPFormDraft
-    @State private var webdav: GenericFormDraft
-    @State private var gdrive: GenericFormDraft
-    @State private var smb: GenericFormDraft
+    @State private var generic: [AddBackendKind: GenericFormDraft]
+    @State private var raw: RawFormDraft
     @State private var authorizer = OAuthAuthorizer()
     @State private var error: String?
     @State private var customizeTuning: Bool
@@ -50,12 +66,16 @@ struct AddRemoteView: View {
         var sftpDraft = SFTPFormDraft()
         var s3Draft = S3FormDraft()
         var ftpDraft = FTPFormDraft()
-        var webdavDraft = GenericFormDraft(descriptor: .webdav)
-        webdavDraft.mountProtocol = prefs.defaultProtocol
-        var gdriveDraft = GenericFormDraft(descriptor: .googleDrive)
-        gdriveDraft.mountProtocol = prefs.defaultProtocol
-        var smbDraft = GenericFormDraft(descriptor: .smb)
-        smbDraft.mountProtocol = prefs.defaultProtocol
+        var genericDrafts: [AddBackendKind: GenericFormDraft] = [:]
+        for k in AddBackendKind.allCases {
+            if let d = k.descriptor {
+                var draft = GenericFormDraft(descriptor: d)
+                draft.mountProtocol = prefs.defaultProtocol
+                genericDrafts[k] = draft
+            }
+        }
+        var rawDraft = RawFormDraft()
+        rawDraft.mountProtocol = prefs.defaultProtocol
         sftpDraft.mountProtocol = prefs.defaultProtocol
         s3Draft.mountProtocol = prefs.defaultProtocol
         ftpDraft.mountProtocol = prefs.defaultProtocol
@@ -70,17 +90,13 @@ struct AddRemoteView: View {
             case .s3:   initialKind = .s3;   s3Draft   = S3FormDraft(editing: r)
             case .ftp:  initialKind = .ftp;  ftpDraft  = FTPFormDraft(editing: r)
             case .rclone(let cfg):
-                if let d = BackendDescriptor.descriptor(forType: cfg.type) {
-                    if d.type == BackendDescriptor.googleDrive.type {
-                        initialKind = .gdrive
-                        gdriveDraft = GenericFormDraft(editing: r, descriptor: d)
-                    } else if d.type == BackendDescriptor.smb.type {
-                        initialKind = .smb
-                        smbDraft = GenericFormDraft(editing: r, descriptor: d)
-                    } else {
-                        initialKind = .webdav
-                        webdavDraft = GenericFormDraft(editing: r, descriptor: d)
-                    }
+                if let k = AddBackendKind.allCases.first(where: { $0.descriptor?.type == cfg.type }),
+                   let d = k.descriptor {
+                    initialKind = k
+                    genericDrafts[k] = GenericFormDraft(editing: r, descriptor: d)
+                } else {
+                    initialKind = .other
+                    rawDraft = RawFormDraft(editing: r)
                 }
             }
         }
@@ -93,21 +109,30 @@ struct AddRemoteView: View {
         _sftp = State(initialValue: sftpDraft)
         _s3 = State(initialValue: s3Draft)
         _ftp = State(initialValue: ftpDraft)
-        _webdav = State(initialValue: webdavDraft)
-        _gdrive = State(initialValue: gdriveDraft)
-        _smb = State(initialValue: smbDraft)
+        _generic = State(initialValue: genericDrafts)
+        _raw = State(initialValue: rawDraft)
     }
 
     private var isEditing: Bool { editingRemote != nil }
+
+    private func genericBinding(_ k: AddBackendKind) -> Binding<GenericFormDraft> {
+        Binding(get: { generic[k] ?? GenericFormDraft(descriptor: k.descriptor ?? .webdav) },
+                set: { generic[k] = $0 })
+    }
+
+    /// Secret option names of the remote being edited (kept when the secret box is left empty).
+    private var savedSecretOptions: [RcloneSecretOption] {
+        if case .rclone(let cfg)? = editingRemote?.backend { return cfg.secretOptions }
+        return []
+    }
 
     private var currentProtocol: MountProtocol {
         switch kind {
         case .sftp: return sftp.mountProtocol
         case .s3:   return s3.mountProtocol
         case .ftp:  return ftp.mountProtocol
-        case .webdav: return webdav.mountProtocol
-        case .gdrive: return gdrive.mountProtocol
-        case .smb: return smb.mountProtocol
+        case .other: return raw.mountProtocol
+        default: return generic[kind]?.mountProtocol ?? prefs.defaultProtocol
         }
     }
 
@@ -152,9 +177,9 @@ struct AddRemoteView: View {
         case .sftp: SFTPFormView(draft: $sftp)
         case .s3:   S3FormView(draft: $s3)
         case .ftp:  FTPFormView(draft: $ftp)
-        case .webdav: GenericBackendFormView(draft: $webdav, prefs: prefs, authorizer: authorizer)
-        case .gdrive: GenericBackendFormView(draft: $gdrive, prefs: prefs, authorizer: authorizer)
-        case .smb: GenericBackendFormView(draft: $smb, prefs: prefs, authorizer: authorizer)
+        case .other: RawBackendFormView(draft: $raw)
+        default:
+            GenericBackendFormView(draft: genericBinding(kind), prefs: prefs, authorizer: authorizer)
         }
     }
 
@@ -207,17 +232,16 @@ struct AddRemoteView: View {
             if let v = ftp.validate() { error = v; return nil }
             let (r, secrets) = ftp.toRemoteAndSecrets()
             remote = r; draft.ftp = secrets
-        case .webdav:
-            if let v = webdav.validate() { error = v; return nil }
-            let (r, secrets) = webdav.toRemoteAndSecrets()
+        case .other:
+            if let v = raw.validate() { error = v; return nil }
+            guard let (r, secrets) = raw.toRemoteAndSecrets(keeping: savedSecretOptions) else {
+                error = "Check the option lines"; return nil
+            }
             remote = r; draft.options = secrets
-        case .gdrive:
-            if let v = gdrive.validate() { error = v; return nil }
-            let (r, secrets) = gdrive.toRemoteAndSecrets()
-            remote = r; draft.options = secrets
-        case .smb:
-            if let v = smb.validate() { error = v; return nil }
-            let (r, secrets) = smb.toRemoteAndSecrets()
+        default:
+            guard let g = generic[kind] else { return nil }
+            if let v = g.validate() { error = v; return nil }
+            let (r, secrets) = g.toRemoteAndSecrets()
             remote = r; draft.options = secrets
         }
         remote.tuning = customizeTuning ? tuning : nil
@@ -252,7 +276,7 @@ struct AddRemoteView: View {
             case .ftp:
                 if isEditing { try manager.update(remote, ftpSecrets: draft.ftp) }
                 else { try manager.add(remote, ftpSecrets: draft.ftp) }
-            case .webdav, .gdrive, .smb:
+            default:
                 if isEditing { try manager.update(remote, optionSecrets: draft.options) }
                 else { try manager.add(remote, optionSecrets: draft.options) }
             }

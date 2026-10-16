@@ -30,6 +30,8 @@ Your remote files, in Finder. Open, edit, drag — like any folder on your Mac.
 - **FTP / FTPS** — explicit or implicit TLS.
 - **WebDAV / Nextcloud / ownCloud** — URL, user and (app) password.
 - **SMB / Windows shares** — NAS, Samba and Windows shares by host, user, password and share name.
+- **Azure Blob, Backblaze B2, Google Cloud Storage** — by account key / application key / service-account JSON; the container or bucket is the first path component.
+- **Other rclone backend** — any rclone backend type with `name = value` options; secret options are kept in the Keychain, never in a file.
 - **Google Drive** — browser sign-in; optional shared drive, root folder and your own OAuth client.
 - **Live updates** — changes on the server show up in seconds.
 - **Auto-mount at login.**
