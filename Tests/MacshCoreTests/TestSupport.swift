@@ -39,7 +39,7 @@ struct FakeRclone {
         refresh = os.path.join(here, "refresh-token.txt")
         if "serve" in args and "--config" in args and os.path.exists(refresh):
             with open(args[args.index("--config") + 1], "a") as cf:
-                cf.write("token = " + open(refresh).read().strip() + "\n")
+                cf.write("token = " + open(refresh).read().strip() + "\\n")
         for k in sorted(os.environ):
             if k.startswith("RCLONE_CONFIG_") or k == "MACSH_TEST_ENV":
                 lines.append("ENV:%s=%s" % (k, os.environ[k]))
