@@ -86,8 +86,12 @@ environment without macOS, open a PR and let CI be the judge.
      `MACSH_IT_GDRIVE_TOKEN` repository secret; they skip without it). Known gaps: FTPS/TLS, passphrase-protected keys, real
      cloud providers (OAuth backends such as Google Drive will need a stand-in server or
      a test-account secret; document the choice in the PR).
-3. Keep coverage of `MacshCore` from dropping (it is ~89% lines); the report is in the CI job
-   summary.
+3. **New code must be at least 80% covered.** CI fails a pull request when less than 80% of the
+   changed lines under `Sources/` are covered by the unit tests (the `New-code coverage gate`
+   step of `build-test`, using `diff-cover` on the llvm-cov report; the per-line report is in the
+   job summary). Code in `App/` (SwiftUI) is not part of the package and is not measured, so keep
+   logic in `MacshCore` and the views thin. Do not lower the threshold or exclude files to pass.
+   Overall coverage of `MacshCore` is ~89% lines; do not let it drop.
 4. Real-world checks that CI cannot do (Finder behaviour, a real provider account) are
    listed in the PR description as manual steps.
 

@@ -345,6 +345,60 @@ public final class SessionManager: ObservableObject {
         }
     }
 
+    public struct ImportSummary: Equatable {
+        public struct Skipped: Equatable {
+            public let name: String
+            public let reason: String
+        }
+        public var imported: [String] = []
+        public var skipped: [Skipped] = []
+    }
+
+    /// Adds remotes read from an rclone.conf. Obscured passwords are revealed with rclone and
+    /// stored in the Keychain only. `buckets` supplies the bucket for S3 sections (rclone.conf
+    /// has none). Sections that cannot be converted are reported, never silently dropped.
+    public func importRemotes(
+        _ sections: [RcloneConfSection],
+        defaultProtocol: MountProtocol,
+        buckets: [String: String] = [:]
+    ) async -> ImportSummary {
+        let binary = rcloneBinary
+        var summary = ImportSummary()
+        for section in sections {
+            let outcome: ImportOutcome
+            do {
+                outcome = try await Self.offMain {
+                    RcloneConfImporter.convert(section, defaultProtocol: defaultProtocol,
+                                               reveal: { try RcloneProcess.reveal(obscured: $0, binary: binary) })
+                }
+            } catch {
+                outcome = .unsupported("Import failed unexpectedly")
+            }
+            switch outcome {
+            case .unsupported(let reason):
+                summary.skipped.append(.init(name: section.name, reason: reason))
+            case .ready(var imported):
+                if imported.needsBucket {
+                    imported.setBucket(buckets[section.name] ?? "")
+                    if imported.needsBucket {
+                        summary.skipped.append(.init(name: section.name, reason: "A bucket name is required"))
+                        continue
+                    }
+                }
+                imported.remote.name = RcloneConfImporter.uniqueName(
+                    section.name, existing: sessions.map { $0.remote.name })
+                do {
+                    try add(imported.remote, sftpSecrets: imported.sftp, s3Secrets: imported.s3,
+                            ftpSecrets: imported.ftp, optionSecrets: imported.options.isEmpty ? nil : imported.options)
+                    summary.imported.append(imported.remote.name)
+                } catch {
+                    summary.skipped.append(.init(name: section.name, reason: "\(error)"))
+                }
+            }
+        }
+        return summary
+    }
+
     /// Mounts a remote. Everything that blocks (rclone start-up, host-key scan, NetFS,
     /// mount_nfs) runs off the main thread; only state changes and dialogs use it.
     public func mount(remoteID: UUID) async throws {

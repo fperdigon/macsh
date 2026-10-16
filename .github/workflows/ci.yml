@@ -15,6 +15,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0       # the new-code coverage gate diffs against the base branch
 
       - name: Swift version
         run: swift --version
@@ -43,6 +45,36 @@ jobs:
         with:
           name: coverage-report
           path: coverage.txt
+
+      # Rule: in a PR, at least 80% of the changed lines under Sources/ must be covered by the
+      # unit tests above. UI code in App/ is not part of the package, so keep logic in MacshCore.
+      - name: New-code coverage gate (>= 80%)
+        if: github.event_name == 'pull_request'
+        run: |
+          PROFDATA="$(swift test --show-codecov-path | xargs dirname)/default.profdata"
+          BUNDLE="$(find .build -name 'MacshCorePackageTests.xctest' -maxdepth 6 | head -1)"
+          BIN="$BUNDLE/Contents/MacOS/MacshCorePackageTests"
+          xcrun llvm-cov export -format=lcov "$BIN" -instr-profile "$PROFDATA" \
+            -ignore-filename-regex '\.build|Tests' | sed "s#SF:$PWD/#SF:#" > coverage.lcov
+          python3 -m venv .diffcover
+          .diffcover/bin/pip install --quiet 'diff-cover>=9,<10'
+          set +e
+          .diffcover/bin/diff-cover coverage.lcov --compare-branch="origin/${{ github.base_ref }}" \
+            --fail-under=80 --markdown-report diff-coverage.md
+          status=$?
+          set -e
+          {
+            echo '### New-code coverage (rule: at least 80% of changed lines in Sources/)'
+            cat diff-coverage.md
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'pull_request' && always()
+        with:
+          name: diff-coverage
+          path: diff-coverage.md
+          if-no-files-found: ignore
 
   # Real Nextcloud (native PHP + SQLite; containers can't run on Apple Silicon runners)
   # driven through macsh's actual WebDAV backend, rclone and macOS mounts.
