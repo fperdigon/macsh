@@ -32,6 +32,9 @@ echo "Building macsh and macsh-lite v${VERSION} ..."
 # Step 2: regenerate the Xcode project from project.yml.
 ( cd App && xcodegen generate )
 
+# The commit this build comes from; the app uses it to tell which nightly it is running.
+BUILD_SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo dev)}"
+
 BUILD_DIR="App/build"
 PRODUCTS="$BUILD_DIR/Build/Products/Release"
 DIST="dist"
@@ -48,6 +51,7 @@ build_target() {
         CODE_SIGNING_ALLOWED=NO \
         CODE_SIGN_IDENTITY="" \
         CODE_SIGNING_REQUIRED=NO \
+        MACSH_BUILD_SHA="$BUILD_SHA" \
         build \
         | grep -E '(error:|warning:.*deprecated|BUILD SUCCEEDED|BUILD FAILED)' \
         || true
