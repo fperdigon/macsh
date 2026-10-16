@@ -19,6 +19,9 @@ WebDAV/Nextcloud, SMB and Google Drive (the generic `Backend.rclone` model; OAut
   - `Rclone/` config builder, rclone process management
   - `Mount/` NetFS / `mount_nfs`; `Session/SessionManager` orchestrates mount/unmount
   - `Storage/` Keychain, `remotes.json`; `SSH/` host keys and key generation
+  - `Update/` self-update: GitHub release lookup per channel, DMG download/verify/install
+    (release asset names `macsh-*.dmg` / `macsh-lite-*.dmg` and nightly tags `nightly-YYYYMMDD-<sha>`
+    are an interface; the app embeds its commit as `MacshBuildSHA`)
 - `App/macsh/` – SwiftUI app, generated with xcodegen from `App/project.yml`
   (flavors `macsh` with bundled rclone and `macsh-lite`).
 - `Tests/MacshCoreTests/` – unit and integration tests.

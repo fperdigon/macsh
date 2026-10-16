@@ -19,6 +19,11 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   through the environment, and any token rclone refreshes while mounted is written
   back to the Keychain when the mount ends.
 
+- **In-app updates with a stable/nightly choice.** Settings -> Updates picks the channel
+  (tagged releases, or the per-commit nightly builds) and whether to check once a day;
+  "Check for updates..." downloads the DMG for your flavor (macsh or macsh-lite), checks its
+  SHA-256, swaps the app in place and relaunches. Builds now embed their commit so a nightly
+  knows whether it is current. Updates come from `fperdigon/macsh` releases.
 - **SMB / Windows shares (NAS, Samba)** as a backend, with host, port, user, password, optional
   domain and the share name as the folder; also importable from rclone.conf.
 - **Test connection.** A button in the Add/Edit window checks the form's values against
