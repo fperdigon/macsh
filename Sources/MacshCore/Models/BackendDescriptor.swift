@@ -6,6 +6,7 @@ public struct BackendField: Equatable {
         case text
         case url            // must be http:// or https://
         case secret         // stored in the Keychain, never in the config file
+        case oauthToken     // secret obtained by signing in (`rclone authorize`), refreshed by rclone
         case choice([String])
     }
 
@@ -32,7 +33,23 @@ public struct BackendField: Equatable {
         self.obscure = obscure
     }
 
-    public var isSecret: Bool { kind == .secret }
+    public var isSecret: Bool { kind == .secret || kind == .oauthToken }
+}
+
+/// How to sign in to an OAuth backend with `rclone authorize <backend>`.
+public struct OAuthSpec: Equatable {
+    public let backend: String
+    /// Option holding the requested scope; passed to `rclone authorize` as `RCLONE_<BACKEND>_<SCOPE>`.
+    public let scopeKey: String?
+    public let clientIDKey: String?
+    public let clientSecretKey: String?
+
+    public init(backend: String, scopeKey: String? = nil, clientIDKey: String? = nil, clientSecretKey: String? = nil) {
+        self.backend = backend
+        self.scopeKey = scopeKey
+        self.clientIDKey = clientIDKey
+        self.clientSecretKey = clientSecretKey
+    }
 }
 
 /// Declares an rclone backend: which fields the form shows and which of them are
@@ -45,10 +62,13 @@ public struct BackendDescriptor: Equatable {
     public let remotePathLabel: String
     public let remotePathPlaceholder: String
     public let defaultRemotePath: String
+    /// Set for backends that sign in through the browser instead of a password.
+    public let oauth: OAuthSpec?
 
     public init(
         type: String, displayName: String, fields: [BackendField],
-        remotePathLabel: String = "Path", remotePathPlaceholder: String = "", defaultRemotePath: String = ""
+        remotePathLabel: String = "Path", remotePathPlaceholder: String = "", defaultRemotePath: String = "",
+        oauth: OAuthSpec? = nil
     ) {
         self.type = type
         self.displayName = displayName
@@ -56,6 +76,7 @@ public struct BackendDescriptor: Equatable {
         self.remotePathLabel = remotePathLabel
         self.remotePathPlaceholder = remotePathPlaceholder
         self.defaultRemotePath = defaultRemotePath
+        self.oauth = oauth
     }
 
     /// Initial form values: every field's default.
@@ -80,7 +101,7 @@ public struct BackendDescriptor: Equatable {
                 }
             case .choice(let allowed):
                 if !allowed.contains(v) { return "\(f.label) must be one of: \(allowed.joined(separator: ", "))" }
-            case .text, .secret:
+            case .text, .secret, .oauthToken:
                 break
             }
         }
@@ -94,7 +115,8 @@ public struct BackendDescriptor: Equatable {
         var secrets: [RcloneSecretOption] = []
         for f in fields {
             if f.isSecret {
-                secrets.append(RcloneSecretOption(name: f.key, obscure: f.obscure))
+                secrets.append(RcloneSecretOption(name: f.key, obscure: f.obscure, required: f.required,
+                                                  refreshable: f.kind == .oauthToken))
             } else if let v = values[f.key]?.trimmingCharacters(in: .whitespaces), !v.isEmpty {
                 options[f.key] = v
             }
@@ -128,7 +150,26 @@ public struct BackendDescriptor: Equatable {
         remotePathPlaceholder: "leave empty for the root"
     )
 
-    public static let all: [BackendDescriptor] = [.webdav]
+    /// Google Drive. Signs in through the browser (`rclone authorize drive`); rclone's shared
+    /// OAuth client is rate limited, so users can supply their own client ID and secret.
+    public static let googleDrive = BackendDescriptor(
+        type: "drive",
+        displayName: "Google Drive",
+        fields: [
+            BackendField(key: "scope", label: "Access", kind: .choice(["drive", "drive.readonly", "drive.file"]),
+                         defaultValue: "drive"),
+            BackendField(key: "token", label: "Account", kind: .oauthToken, required: true),
+            BackendField(key: "team_drive", label: "Shared drive ID", placeholder: "optional"),
+            BackendField(key: "root_folder_id", label: "Root folder ID", placeholder: "optional"),
+            BackendField(key: "client_id", label: "Client ID", placeholder: "optional, your own OAuth client"),
+            BackendField(key: "client_secret", label: "Client secret", kind: .secret, placeholder: "optional"),
+        ],
+        remotePathLabel: "Folder",
+        remotePathPlaceholder: "leave empty for My Drive root",
+        oauth: OAuthSpec(backend: "drive", scopeKey: "scope", clientIDKey: "client_id", clientSecretKey: "client_secret")
+    )
+
+    public static let all: [BackendDescriptor] = [.webdav, .googleDrive]
 
     public static func descriptor(forType type: String) -> BackendDescriptor? {
         all.first { $0.type == type }

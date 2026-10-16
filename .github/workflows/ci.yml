@@ -85,3 +85,31 @@ jobs:
           tail -n 40 /tmp/macsh-it/sshd.log || true
           tail -n 40 /tmp/macsh-it/ftp.log /tmp/macsh-it/s3.log || true
           mount | grep -i -E "macsh|127.0.0.1" || true
+
+  # Real Google Drive. Needs a test account: add the repository secret MACSH_IT_GDRIVE_TOKEN
+  # (output of `rclone authorize drive`; optionally MACSH_IT_GDRIVE_CLIENT_ID/_CLIENT_SECRET and
+  # MACSH_IT_GDRIVE_FOLDER). Without it the tests skip, and PRs from forks never get secrets.
+  gdrive-integration:
+    runs-on: macos-14
+    timeout-minutes: 20
+    env:
+      MACSH_IT_GDRIVE_TOKEN: ${{ secrets.MACSH_IT_GDRIVE_TOKEN }}
+      MACSH_IT_GDRIVE_CLIENT_ID: ${{ secrets.MACSH_IT_GDRIVE_CLIENT_ID }}
+      MACSH_IT_GDRIVE_CLIENT_SECRET: ${{ secrets.MACSH_IT_GDRIVE_CLIENT_SECRET }}
+      MACSH_IT_GDRIVE_FOLDER: ${{ secrets.MACSH_IT_GDRIVE_FOLDER }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for test account
+        run: |
+          if [ -z "$MACSH_IT_GDRIVE_TOKEN" ]; then
+            echo "::warning::MACSH_IT_GDRIVE_TOKEN secret not set - Google Drive integration tests are skipped"
+          fi
+
+      - name: Install rclone
+        if: env.MACSH_IT_GDRIVE_TOKEN != ''
+        run: brew install rclone
+
+      - name: Google Drive round-trip and token refresh tests
+        if: env.MACSH_IT_GDRIVE_TOKEN != ''
+        run: swift test --filter GoogleDriveIntegrationTests

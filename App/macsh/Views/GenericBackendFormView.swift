@@ -53,6 +53,12 @@ struct GenericFormDraft {
 
 struct GenericBackendFormView: View {
     @Binding var draft: GenericFormDraft
+    /// Used by OAuth backends (Google Drive) to run `rclone authorize`.
+    let prefs: UserPreferences
+    let authorizer: OAuthAuthorizer
+
+    @State private var signingIn = false
+    @State private var signInError: String?
 
     private func binding(_ key: String) -> Binding<String> {
         Binding(get: { draft.values[key] ?? "" }, set: { draft.values[key] = $0 })
@@ -109,9 +115,59 @@ struct GenericBackendFormView: View {
                 ForEach(options, id: \.self) { Text($0.capitalized).tag($0) }
             }
             .labelsHidden()
+        case .oauthToken:
+            oauthControl(field)
         case .text, .url:
             TextField("", text: binding(field.key), prompt: Text(field.placeholder))
                 .textFieldStyle(.roundedBorder)
+        }
+    }
+
+    @ViewBuilder
+    private func oauthControl(_ field: BackendField) -> some View {
+        let hasNew = !(draft.values[field.key] ?? "").isEmpty
+        let hasSaved = draft.existingRemoteID != nil
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                if signingIn {
+                    ProgressView().controlSize(.small)
+                    Text("Finish signing in in your browser…").foregroundStyle(.secondary)
+                    Button("Cancel") { authorizer.cancel() }
+                } else {
+                    Button(hasNew || hasSaved ? "Sign in again…" : "Sign in…") { signIn(field) }
+                    if hasNew {
+                        Label("Signed in", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                    } else if hasSaved {
+                        Text("Using saved sign-in").foregroundStyle(.secondary)
+                    }
+                }
+            }
+            if let signInError {
+                Text(signInError).font(.callout).foregroundStyle(.red).lineLimit(3)
+            }
+        }
+    }
+
+    private func signIn(_ field: BackendField) {
+        guard let spec = draft.descriptor.oauth else { return }
+        signInError = nil
+        signingIn = true
+        let values = draft.values
+        Task { @MainActor in
+            do {
+                let binary = try RcloneBinary.resolve(prefs: prefs)
+                let token = try await authorizer.authorize(
+                    binary: binary, backend: spec.backend,
+                    clientID: spec.clientIDKey.flatMap { values[$0] },
+                    clientSecret: spec.clientSecretKey.flatMap { values[$0] },
+                    scope: spec.scopeKey.flatMap { values[$0] })
+                draft.values[field.key] = token
+            } catch OAuthError.cancelled {
+                // user cancelled; nothing to report
+            } catch {
+                signInError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            }
+            signingIn = false
         }
     }
 }

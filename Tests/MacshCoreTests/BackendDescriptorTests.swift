@@ -92,3 +92,61 @@ final class BackendDescriptorTests: XCTestCase {
         XCTAssertEqual(SecretKind.password.rawValue, "password", "existing Keychain items must keep resolving")
     }
 }
+
+final class GoogleDriveDescriptorTests: XCTestCase {
+    private let d = BackendDescriptor.googleDrive
+    private let token = #"{"access_token":"AT","refresh_token":"RT"}"#
+
+    func testRegistryAndOAuthSpec() {
+        XCTAssertEqual(BackendDescriptor.descriptor(forType: "drive"), .googleDrive)
+        XCTAssertEqual(d.oauth?.backend, "drive")
+        XCTAssertEqual(d.oauth?.scopeKey, "scope")
+        XCTAssertNil(BackendDescriptor.webdav.oauth)
+    }
+
+    func testSignInRequiredUnlessEditing() {
+        XCTAssertEqual(d.validate(values: d.defaultValues, isEditing: false), "Account required")
+        XCTAssertNil(d.validate(values: d.defaultValues, isEditing: true), "saved sign-in is kept")
+        var v = d.defaultValues; v["token"] = token
+        XCTAssertNil(d.validate(values: v, isEditing: false))
+    }
+
+    func testScopeMustBeAllowed() {
+        var v = d.defaultValues; v["token"] = token; v["scope"] = "everything"
+        XCTAssertNotNil(d.validate(values: v, isEditing: false))
+    }
+
+    func testConfigKeepsTokenAndClientSecretOutOfOptions() {
+        var v = d.defaultValues
+        v["token"] = token; v["client_id"] = "cid"; v["client_secret"] = "cs"; v["team_drive"] = "TD"
+        let cfg = d.makeConfig(values: v, remotePath: "Docs")
+        XCTAssertEqual(cfg.type, "drive")
+        XCTAssertEqual(cfg.options, ["scope": "drive", "client_id": "cid", "team_drive": "TD"])
+        XCTAssertEqual(cfg.secretOptions, [
+            RcloneSecretOption(name: "token", obscure: false, required: true, refreshable: true),
+            RcloneSecretOption(name: "client_secret", obscure: false, required: false, refreshable: false),
+        ])
+        XCTAssertEqual(d.secretValues(from: v), ["token": token, "client_secret": "cs"])
+    }
+
+    func testSecretOptionDecodesFromOlderJSON() throws {
+        let old = Data(#"{"name":"pass","obscure":true}"#.utf8)
+        let opt = try JSONDecoder().decode(RcloneSecretOption.self, from: old)
+        XCTAssertEqual(opt, RcloneSecretOption(name: "pass", obscure: true, required: true, refreshable: false))
+        let round = try JSONDecoder().decode(
+            RcloneSecretOption.self,
+            from: JSONEncoder().encode(RcloneSecretOption(name: "t", obscure: false, required: false, refreshable: true)))
+        XCTAssertEqual(round.refreshable, true)
+        XCTAssertEqual(round.required, false)
+    }
+
+    func testBuilderRequiresTokenButNotClientSecret() throws {
+        let r = makeRemote(backend: driveBackend(clientID: "cid"))
+        XCTAssertThrowsError(try RcloneConfigBuilder.build(remote: r, secrets: BackendSecrets())) {
+            XCTAssertEqual($0 as? RcloneConfigError, .missingSecret("token"))
+        }
+        let cfg = try RcloneConfigBuilder.build(remote: r, secrets: BackendSecrets(options: ["token": "T"]))
+        XCTAssertEqual(cfg, "[r]\ntype = drive\nclient_id = cid\nscope = drive\n")
+        XCTAssertFalse(cfg.contains("token"))
+    }
+}

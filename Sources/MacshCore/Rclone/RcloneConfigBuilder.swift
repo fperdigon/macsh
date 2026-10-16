@@ -105,7 +105,7 @@ public enum RcloneConfigBuilder {
             }
 
         case .rclone(let cfg):
-            for opt in cfg.secretOptions where (secrets.options[opt.name] ?? "").isEmpty {
+            for opt in cfg.secretOptions where opt.required && (secrets.options[opt.name] ?? "").isEmpty {
                 throw RcloneConfigError.missingSecret(opt.name)
             }
             lines.append("type = \(cfg.type)")

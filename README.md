@@ -4,7 +4,7 @@
 
 # macsh
 
-**Mount SFTP, S3, FTP, and WebDAV/Nextcloud servers as native macOS volumes.**
+**Mount SFTP, S3, FTP, WebDAV/Nextcloud servers and Google Drive as native macOS volumes.**
 No macFUSE. No kernel extensions. No security prompts.
 
 [Download](https://github.com/AyonPal/macsh/releases) ·
@@ -29,6 +29,7 @@ Your remote files, in Finder. Open, edit, drag — like any folder on your Mac.
 - **S3-compatible** — AWS, Cloudflare R2, Backblaze B2, Wasabi, MinIO, DigitalOcean Spaces, custom endpoints.
 - **FTP / FTPS** — explicit or implicit TLS.
 - **WebDAV / Nextcloud / ownCloud** — URL, user and (app) password.
+- **Google Drive** — browser sign-in; optional shared drive, root folder and your own OAuth client.
 - **Live updates** — changes on the server show up in seconds.
 - **Auto-mount at login.**
 - **Passwords stored in your Keychain** — never on disk in plaintext.
