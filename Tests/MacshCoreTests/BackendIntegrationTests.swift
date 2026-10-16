@@ -276,12 +276,8 @@ final class BackendIntegrationTests: XCTestCase {
         XCTAssertTrue(ok.ok, "\(ok.message) | \(ok.detail)")
 
         let bad = try await IntegrationHarness.connectionTest(self, backend: good, draft: .init(options: ["pass": "wrong"]))
-        // The impacket test server answers a failed logon with a malformed SMB error, which rclone
-        // reports as "broken error response format". A real server says STATUS_LOGON_FAILURE
-        // (covered by the explain() unit tests); here we only require a failure that is not
-        // misreported as a missing folder.
         XCTAssertFalse(bad.ok)
-        XCTAssertFalse(bad.message.hasPrefix("Folder or bucket not found"), "\(bad.message) | \(bad.detail)")
+        XCTAssertTrue(bad.message.hasPrefix("Authentication failed"), "\(bad.message) | \(bad.detail)")
 
         let down = smbBackend(port: "1", user: e["MACSH_IT_SMB_USER"]!, share: e["MACSH_IT_SMB_SHARE"]!)
         let unreachable = try await IntegrationHarness.connectionTest(self, backend: down, draft: .init(options: ["pass": "x"]))

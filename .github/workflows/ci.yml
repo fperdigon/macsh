@@ -124,6 +124,7 @@ jobs:
         run: |
           tail -n 40 /tmp/macsh-it/sshd.log || true
           tail -n 5 /tmp/macsh-it/ftp.log /tmp/macsh-it/s3.log /tmp/macsh-it/smb.log || true
+          tail -n 15 /tmp/macsh-it/samba/log.* 2>/dev/null || true
           mount | grep -i -E "macsh|127.0.0.1" || true
 
       - name: Failure digest
