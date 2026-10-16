@@ -366,12 +366,14 @@ final class SessionManagerTests: XCTestCase {
         try f.manager.add(manual, s3Secrets: secrets)
 
         f.manager.autoMountAll()
-        XCTAssertEqual(Set(f.mounter.reconciled), ["auto", "manual"])
 
-        let deadline = Date().addingTimeInterval(10)
-        while Date() < deadline, f.manager.sessions[0].status == .idle {
+        // autoMountAll reconciles stale mounts and mounts off the main thread, so wait for the result.
+        let deadline = Date().addingTimeInterval(15)
+        while Date() < deadline {
+            if case .mounted = f.manager.sessions[0].status, f.mounter.reconciled.count >= 2 { break }
             try await Task.sleep(nanoseconds: 100_000_000)
         }
+        XCTAssertEqual(Set(f.mounter.reconciled), ["auto", "manual"])
         XCTAssertEqual(f.manager.sessions[0].status, .mounted(at: "/Volumes/fake/auto"))
         XCTAssertEqual(f.manager.sessions[1].status, .idle)
     }
