@@ -25,6 +25,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history + tags, needed to list changes since the last release
 
       - name: Check tag matches app version
         if: github.ref_type == 'tag'
@@ -54,9 +56,23 @@ jobs:
       - name: Publish tagged release
         if: github.ref_type == 'tag'
         run: |
+          prev_tag="$(git describe --tags --abbrev=0 --match 'v*' "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          {
+            if [ -n "$prev_tag" ]; then
+              echo "## Changes since ${prev_tag}"
+            else
+              echo "## Changes"
+            fi
+            echo
+            ./scripts/release-notes.sh "$prev_tag" "$GITHUB_REF_NAME"
+            if [ -n "$prev_tag" ]; then
+              echo
+              echo "**Full diff:** https://github.com/${GITHUB_REPOSITORY}/compare/${prev_tag}...${GITHUB_REF_NAME}"
+            fi
+          } > notes.md
           gh release create "$GITHUB_REF_NAME" dist/*.dmg \
             --title "$GITHUB_REF_NAME" \
-            --generate-notes \
+            --notes-file notes.md \
             --verify-tag
 
       - name: Publish nightly pre-release
@@ -64,6 +80,31 @@ jobs:
         run: |
           short="${GITHUB_SHA::7}"
           day="$(date -u +%Y-%m-%d)"
+
+          # The nightly release is recreated every build, so carry its change history
+          # forward: read the previous body, find what it was built from, and prepend
+          # this build's commits to the accumulated list.
+          prev_body="$(gh release view nightly --json body --jq .body 2>/dev/null || true)"
+          prev_sha="$(printf '%s\n' "$prev_body" | sed -n 's/.*nightly-sha: \([0-9a-f]\{40\}\).*/\1/p' | head -n 1)"
+          prev_history="$(printf '%s\n' "$prev_body" | sed -n '/<!-- history -->/,$p' | tail -n +2)"
+          if [ -z "$prev_sha" ]; then
+            prev_sha="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
+          fi
+
+          {
+            echo "Automated build of \`main\` at ${short}. Unsigned and unstable; use a tagged release unless you want the latest changes."
+            echo "<!-- nightly-sha: ${GITHUB_SHA} -->"
+            echo
+            echo "## Changes (newest first)"
+            echo "<!-- history -->"
+            echo "### ${day} (${short})"
+            ./scripts/release-notes.sh "$prev_sha" "$GITHUB_SHA"
+            if [ -n "$prev_history" ]; then
+              echo
+              printf '%s\n' "$prev_history"
+            fi
+          } | head -c 100000 > notes.md
+
           for f in dist/*.dmg; do
             mv "$f" "${f%.dmg}-nightly-${day}-${short}.dmg"
           done
@@ -72,4 +113,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --prerelease \
             --title "Nightly ${day} (${short})" \
-            --notes "Automated build of \`main\` at ${short}. Unsigned and unstable; use a tagged release unless you want the latest changes."
+            --notes-file notes.md
