@@ -64,3 +64,23 @@ jobs:
           tail -n 50 "$RUNNER_TEMP/nextcloud-it/server.log" || true
           tail -n 50 "$RUNNER_TEMP"/nextcloud-it/data/nextcloud.log || true
           mount | grep -i -E "macsh|127.0.0.1" || true
+
+  # SFTP (sshd, password + key auth), FTP and S3 servers on localhost, driven through
+  # macsh's real pipeline with NFS and WebDAV mounts.
+  backends-integration:
+    runs-on: macos-14
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start SFTP, FTP and S3 servers
+        run: ./scripts/ci/start-backends.sh
+
+      - name: Backend round-trip tests
+        run: swift test --filter BackendIntegrationTests
+
+      - name: Diagnostics
+        if: failure()
+        run: |
+          tail -n 40 /tmp/macsh-it/sshd.log /tmp/macsh-it/ftp.log /tmp/macsh-it/s3.log || true
+          mount | grep -i -E "macsh|127.0.0.1" || true
