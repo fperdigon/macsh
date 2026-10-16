@@ -18,14 +18,27 @@ public struct TransferTuning: Codable, Equatable {
     /// Delay before a written file is uploaded (`--vfs-write-back`). Empty = rclone's 5s.
     /// `0` is rejected: it makes every write synchronous and is ~100x slower.
     public var writeBack: String
+    /// Read the whole folder tree into the directory cache in the background right after
+    /// mounting (`--vfs-refresh`), so entering a folder doesn't wait for the cloud API.
+    public var prefetchFolders: Bool
+    /// How often rclone asks the remote for changes (`--poll-interval`); lets a long
+    /// `dirCacheTime` stay fresh on remotes with change notifications. Empty = rclone's 1m.
+    public var pollInterval: String
+    /// `--drive-acknowledge-abuse`: allow downloading files Google flags as malware/abuse.
+    /// Off by default; only meaningful for Google Drive.
+    public var acknowledgeAbuse: Bool
 
-    public init(cacheMode: VFSCacheMode, readAhead: String, bufferSize: String, cacheMaxSize: String, dirCacheTime: String, writeBack: String = "") {
+    public init(cacheMode: VFSCacheMode, readAhead: String, bufferSize: String, cacheMaxSize: String, dirCacheTime: String, writeBack: String = "",
+                prefetchFolders: Bool = false, pollInterval: String = "", acknowledgeAbuse: Bool = false) {
         self.cacheMode = cacheMode
         self.readAhead = readAhead
         self.bufferSize = bufferSize
         self.cacheMaxSize = cacheMaxSize
         self.dirCacheTime = dirCacheTime
         self.writeBack = writeBack
+        self.prefetchFolders = prefetchFolders
+        self.pollInterval = pollInterval
+        self.acknowledgeAbuse = acknowledgeAbuse
     }
 
     // Remotes saved before `writeBack` existed decode with it empty.
@@ -37,17 +50,44 @@ public struct TransferTuning: Codable, Equatable {
         cacheMaxSize = try c.decode(String.self, forKey: .cacheMaxSize)
         dirCacheTime = try c.decode(String.self, forKey: .dirCacheTime)
         writeBack = try c.decodeIfPresent(String.self, forKey: .writeBack) ?? ""
+        prefetchFolders = try c.decodeIfPresent(Bool.self, forKey: .prefetchFolders) ?? false
+        pollInterval = try c.decodeIfPresent(String.self, forKey: .pollInterval) ?? ""
+        acknowledgeAbuse = try c.decodeIfPresent(Bool.self, forKey: .acknowledgeAbuse) ?? false
     }
 
     /// WebDAV keeps the original conservative settings. NFS issues many small reads, so
     /// it needs a read cache + read-ahead (measured 2.5 MB/s with `writes` vs ~17 MB/s).
-    public static func defaults(for proto: MountProtocol) -> TransferTuning {
+    ///
+    /// Cloud remotes that report changes (`pollingBackends`) get a long directory cache kept
+    /// fresh by polling, and the folder tree is prefetched: re-listing every 10s through the
+    /// cloud API made every folder visit slow and starved the mount.
+    public static func defaults(for proto: MountProtocol, backendType: String? = nil) -> TransferTuning {
+        var t: TransferTuning
         switch proto {
         case .webdav:
-            return TransferTuning(cacheMode: .writes, readAhead: "", bufferSize: "", cacheMaxSize: "", dirCacheTime: "10s")
+            t = TransferTuning(cacheMode: .writes, readAhead: "", bufferSize: "", cacheMaxSize: "", dirCacheTime: "10s")
         case .nfs:
-            return TransferTuning(cacheMode: .full, readAhead: "128M", bufferSize: "32M", cacheMaxSize: "5G", dirCacheTime: "10s", writeBack: "1s")
+            t = TransferTuning(cacheMode: .full, readAhead: "128M", bufferSize: "32M", cacheMaxSize: "5G", dirCacheTime: "10s", writeBack: "1s")
         }
+        if let backendType, pollingBackends.contains(backendType) {
+            t.dirCacheTime = "1h"
+            t.pollInterval = "30s"
+            t.prefetchFolders = true
+        }
+        return t
+    }
+
+    /// rclone backend types that notify about remote changes, so `--poll-interval` works.
+    public static let pollingBackends: Set<String> = ["drive", "onedrive", "dropbox", "box"]
+
+    /// Seconds in an rclone duration like `30s`, `5m`, `1h`, `500ms`; nil if malformed.
+    static func seconds(of duration: String) -> Double? {
+        guard duration.range(of: #"^\d+(ms|s|m|h)$"#, options: .regularExpression) != nil,
+              let n = Double(duration.prefix { $0.isNumber }) else { return nil }
+        if duration.hasSuffix("ms") { return n / 1000 }
+        if duration.hasSuffix("s") { return n }
+        if duration.hasSuffix("m") { return n * 60 }
+        return n * 3600
     }
 
     /// Returns a message if a field isn't a valid rclone size/duration.
@@ -58,6 +98,14 @@ public struct TransferTuning: Codable, Equatable {
         }
         if !dirCacheTime.isEmpty, dirCacheTime.range(of: #"^\d+(ms|s|m|h)$"#, options: .regularExpression) == nil {
             return "Directory cache time must look like 10s or 5m"
+        }
+        if !pollInterval.isEmpty {
+            guard let poll = Self.seconds(of: pollInterval), poll > 0 else {
+                return "Poll interval must look like 30s or 1m"
+            }
+            if let cache = Self.seconds(of: dirCacheTime), poll >= cache {
+                return "Poll interval must be shorter than the directory cache time"
+            }
         }
         if !writeBack.isEmpty {
             guard writeBack.range(of: #"^\d+(ms|s|m|h)$"#, options: .regularExpression) != nil,
@@ -74,6 +122,9 @@ public struct TransferTuning: Codable, Equatable {
         if !readAhead.isEmpty { a += ["--vfs-read-ahead", readAhead] }
         if !bufferSize.isEmpty { a += ["--buffer-size", bufferSize] }
         if !writeBack.isEmpty { a += ["--vfs-write-back", writeBack] }
+        if prefetchFolders { a.append("--vfs-refresh") }
+        if !pollInterval.isEmpty { a += ["--poll-interval", pollInterval] }
+        if acknowledgeAbuse { a.append("--drive-acknowledge-abuse") }
         if liveUpdates {
             if !dirCacheTime.isEmpty { a += ["--dir-cache-time", dirCacheTime] }
             a.append("--vfs-fast-fingerprint")
