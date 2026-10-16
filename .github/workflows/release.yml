@@ -44,15 +44,6 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
-      - name: Free disk space
-        run: |
-          df -h /
-          # The SwiftPM test build is no longer needed; hdiutil needs room for the DMGs.
-          rm -rf .build
-          xcrun simctl delete all 2>/dev/null || true
-          rm -rf ~/Library/Developer/Xcode/DerivedData ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
-          df -h /
-
       - name: Build DMGs
         run: ./scripts/build-release.sh
 
