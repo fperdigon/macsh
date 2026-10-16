@@ -113,3 +113,43 @@ final class RcloneConfigBuilderBackendTests: XCTestCase {
         XCTAssertEqual(RcloneConfigBuilder.s3SecretEnvVar(remoteID: UUID()), "RCLONE_CONFIG_R_SECRET_ACCESS_KEY")
     }
 }
+
+final class RcloneConfigBuilderGenericTests: XCTestCase {
+    private func webdav() -> Remote { makeRemote(backend: webdavBackend()) }
+
+    func testWebDAVConfigListsSortedOptionsAndNoSecret() throws {
+        let cfg = try RcloneConfigBuilder.build(
+            remote: webdav(), secrets: BackendSecrets(options: ["pass": "TOPSECRET"]))
+        XCTAssertEqual(cfg, """
+        [r]
+        type = webdav
+        url = https://cloud.example.com/remote.php/dav/files/bob/
+        user = bob
+        vendor = nextcloud
+
+        """)
+        XCTAssertFalse(cfg.contains("TOPSECRET"))
+        XCTAssertFalse(cfg.contains("pass"))
+    }
+
+    func testMissingOrEmptySecretThrows() {
+        for secrets in [BackendSecrets(), BackendSecrets(options: ["pass": ""])] {
+            XCTAssertThrowsError(try RcloneConfigBuilder.build(remote: webdav(), secrets: secrets)) {
+                XCTAssertEqual($0 as? RcloneConfigError, .missingSecret("pass"))
+            }
+        }
+    }
+
+    func testBackendWithoutSecretsNeedsNone() throws {
+        let r = makeRemote(backend: .rclone(RcloneBackendConfig(
+            type: "alias", options: ["remote": "/tmp"], secretOptions: [], remotePath: "")))
+        let cfg = try RcloneConfigBuilder.build(remote: r, secrets: BackendSecrets())
+        XCTAssertTrue(cfg.contains("type = alias"))
+        XCTAssertTrue(cfg.contains("remote = /tmp"))
+    }
+
+    func testOptionEnvVarUppercasesName() {
+        XCTAssertEqual(RcloneConfigBuilder.optionEnvVar("pass"), "RCLONE_CONFIG_R_PASS")
+        XCTAssertEqual(RcloneConfigBuilder.optionEnvVar("client_secret"), "RCLONE_CONFIG_R_CLIENT_SECRET")
+    }
+}

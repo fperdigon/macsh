@@ -88,3 +88,9 @@ func s3Backend(prefix: String = "pre") -> Backend {
 func ftpBackend() -> Backend {
     .ftp(FTPConfig(host: "ftp.example.com", port: 21, user: "bob", remotePath: "/pub", tlsMode: .explicit))
 }
+
+func webdavBackend(remotePath: String = "docs") -> Backend {
+    .rclone(BackendDescriptor.webdav.makeConfig(
+        values: ["url": "https://cloud.example.com/remote.php/dav/files/bob/", "vendor": "nextcloud", "user": "bob", "pass": ""],
+        remotePath: remotePath))
+}

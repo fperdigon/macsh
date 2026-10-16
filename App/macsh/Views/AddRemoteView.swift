@@ -2,13 +2,14 @@ import SwiftUI
 import MacshCore
 
 enum AddBackendKind: String, CaseIterable, Identifiable {
-    case sftp, s3, ftp
+    case sftp, s3, ftp, webdav
     var id: String { rawValue }
     var label: String {
         switch self {
         case .sftp: return "SFTP / SSH"
         case .s3:   return "S3-compatible"
         case .ftp:  return "FTP / FTPS"
+        case .webdav: return BackendDescriptor.webdav.displayName
         }
     }
 }
@@ -27,6 +28,7 @@ struct AddRemoteView: View {
     @State private var sftp: SFTPFormDraft
     @State private var s3: S3FormDraft
     @State private var ftp: FTPFormDraft
+    @State private var webdav: GenericFormDraft
     @State private var error: String?
     @State private var customizeTuning: Bool
     @State private var tuning: TransferTuning
@@ -39,6 +41,8 @@ struct AddRemoteView: View {
         var sftpDraft = SFTPFormDraft()
         var s3Draft = S3FormDraft()
         var ftpDraft = FTPFormDraft()
+        var webdavDraft = GenericFormDraft(descriptor: .webdav)
+        webdavDraft.mountProtocol = prefs.defaultProtocol
         sftpDraft.mountProtocol = prefs.defaultProtocol
         s3Draft.mountProtocol = prefs.defaultProtocol
         ftpDraft.mountProtocol = prefs.defaultProtocol
@@ -52,6 +56,11 @@ struct AddRemoteView: View {
                 }
             case .s3:   initialKind = .s3;   s3Draft   = S3FormDraft(editing: r)
             case .ftp:  initialKind = .ftp;  ftpDraft  = FTPFormDraft(editing: r)
+            case .rclone(let cfg):
+                if let d = BackendDescriptor.descriptor(forType: cfg.type) {
+                    initialKind = .webdav
+                    webdavDraft = GenericFormDraft(editing: r, descriptor: d)
+                }
             }
         }
         _kind = State(initialValue: initialKind)
@@ -61,6 +70,7 @@ struct AddRemoteView: View {
         _sftp = State(initialValue: sftpDraft)
         _s3 = State(initialValue: s3Draft)
         _ftp = State(initialValue: ftpDraft)
+        _webdav = State(initialValue: webdavDraft)
     }
 
     private var isEditing: Bool { editingRemote != nil }
@@ -70,6 +80,7 @@ struct AddRemoteView: View {
         case .sftp: return sftp.mountProtocol
         case .s3:   return s3.mountProtocol
         case .ftp:  return ftp.mountProtocol
+        case .webdav: return webdav.mountProtocol
         }
     }
 
@@ -113,6 +124,7 @@ struct AddRemoteView: View {
         case .sftp: SFTPFormView(draft: $sftp)
         case .s3:   S3FormView(draft: $s3)
         case .ftp:  FTPFormView(draft: $ftp)
+        case .webdav: GenericBackendFormView(draft: $webdav)
         }
     }
 
@@ -158,6 +170,12 @@ struct AddRemoteView: View {
                 remote.tuning = chosenTuning
                 if isEditing { try manager.update(remote, ftpSecrets: secrets) }
                 else { try manager.add(remote, ftpSecrets: secrets) }
+            case .webdav:
+                if let v = webdav.validate() { error = v; return }
+                var (remote, secrets) = webdav.toRemoteAndSecrets()
+                remote.tuning = chosenTuning
+                if isEditing { try manager.update(remote, optionSecrets: secrets) }
+                else { try manager.add(remote, optionSecrets: secrets) }
             }
             dismiss()
         } catch {

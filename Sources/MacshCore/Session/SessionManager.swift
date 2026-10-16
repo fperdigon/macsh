@@ -113,7 +113,7 @@ public final class SessionManager: ObservableObject {
         }
     }
 
-    public func add(_ remote: Remote, sftpSecrets: SFTPSecrets? = nil, s3Secrets: S3Secrets? = nil, ftpSecrets: FTPSecrets? = nil) throws {
+    public func add(_ remote: Remote, sftpSecrets: SFTPSecrets? = nil, s3Secrets: S3Secrets? = nil, ftpSecrets: FTPSecrets? = nil, optionSecrets: [String: String]? = nil) throws {
         if let s = sftpSecrets {
             if let pwd = s.password { try keychain.set(remoteID: remote.id, kind: .password, value: pwd) }
             if let pp = s.keyPassphrase { try keychain.set(remoteID: remote.id, kind: .keyPassphrase, value: pp) }
@@ -126,6 +126,9 @@ public final class SessionManager: ObservableObject {
         if let s = ftpSecrets {
             try keychain.set(remoteID: remote.id, kind: .password, value: s.password)
         }
+        for (name, value) in optionSecrets ?? [:] {
+            try keychain.set(remoteID: remote.id, kind: .option(name), value: value)
+        }
         var all = try store.load()
         all.append(remote)
         try store.save(all)
@@ -134,10 +137,10 @@ public final class SessionManager: ObservableObject {
 
     /// Updates an existing remote in `remotes.json`. Backend type cannot change.
     /// Secret fields (`SFTPSecrets.password`, `S3Secrets.accessKeyID`/`secretAccessKey`,
-    /// `FTPSecrets.password`) are interpreted as "blank means keep existing": only
+    /// `FTPSecrets.password`, `optionSecrets`) are interpreted as "blank means keep existing": only
     /// non-nil and non-empty values overwrite the keychain. The session reference
     /// is preserved so an in-flight `.starting` status survives the update.
-    public func update(_ remote: Remote, sftpSecrets: SFTPSecrets? = nil, s3Secrets: S3Secrets? = nil, ftpSecrets: FTPSecrets? = nil) throws {
+    public func update(_ remote: Remote, sftpSecrets: SFTPSecrets? = nil, s3Secrets: S3Secrets? = nil, ftpSecrets: FTPSecrets? = nil, optionSecrets: [String: String]? = nil) throws {
         if let s = sftpSecrets {
             if let pwd = s.password, !pwd.isEmpty { try keychain.set(remoteID: remote.id, kind: .password, value: pwd) }
             if let pp = s.keyPassphrase, !pp.isEmpty { try keychain.set(remoteID: remote.id, kind: .keyPassphrase, value: pp) }
@@ -149,6 +152,9 @@ public final class SessionManager: ObservableObject {
         }
         if let s = ftpSecrets, !s.password.isEmpty {
             try keychain.set(remoteID: remote.id, kind: .password, value: s.password)
+        }
+        for (name, value) in optionSecrets ?? [:] where !value.isEmpty {
+            try keychain.set(remoteID: remote.id, kind: .option(name), value: value)
         }
         var all = try store.load()
         guard let idx = all.firstIndex(where: { $0.id == remote.id }) else {
@@ -176,6 +182,12 @@ public final class SessionManager: ObservableObject {
         try? keychain.delete(remoteID: remoteID, kind: .keyPassphrase)
         try? keychain.delete(remoteID: remoteID, kind: .privateKey)
         try? keychain.delete(remoteID: remoteID, kind: .localServePassword)
+        try? keychain.delete(remoteID: remoteID, kind: .s3AccessKeyID)
+        try? keychain.delete(remoteID: remoteID, kind: .s3SecretAccessKey)
+        if let removed = sessions.first(where: { $0.id == remoteID })?.remote,
+           case .rclone(let cfg) = removed.backend {
+            for opt in cfg.secretOptions { try? keychain.delete(remoteID: remoteID, kind: .option(opt.name)) }
+        }
         var all = try store.load()
         all.removeAll { $0.id == remoteID }
         try store.save(all)
@@ -266,6 +278,20 @@ public final class SessionManager: ObservableObject {
                 envOverrides[RcloneConfigBuilder.passwordEnvVar(remoteID: remote.id)] =
                     try await Self.offMain { try RcloneProcess.obscure(plaintext: password, binary: rcloneBinary) }
                 remotePath = ftp.remotePath
+
+            case .rclone(let cfg):
+                for opt in cfg.secretOptions {
+                    guard let value = try keychain.get(remoteID: remote.id, kind: .option(opt.name)), !value.isEmpty else {
+                        throw RcloneConfigError.missingSecret(opt.name)
+                    }
+                    bundle.options[opt.name] = value
+                    var envValue = value
+                    if opt.obscure {
+                        envValue = try await Self.offMain { try RcloneProcess.obscure(plaintext: value, binary: rcloneBinary) }
+                    }
+                    envOverrides[RcloneConfigBuilder.optionEnvVar(opt.name)] = envValue
+                }
+                remotePath = cfg.remotePath
             }
 
             let configText = try RcloneConfigBuilder.build(

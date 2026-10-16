@@ -35,11 +35,14 @@ public struct BackendSecrets {
     public var sftp: SFTPSecrets?
     public var s3: S3Secrets?
     public var ftp: FTPSecrets?
+    /// Secret option values of a generic `.rclone` backend, keyed by option name.
+    public var options: [String: String]
 
-    public init(sftp: SFTPSecrets? = nil, s3: S3Secrets? = nil, ftp: FTPSecrets? = nil) {
+    public init(sftp: SFTPSecrets? = nil, s3: S3Secrets? = nil, ftp: FTPSecrets? = nil, options: [String: String] = [:]) {
         self.sftp = sftp
         self.s3 = s3
         self.ftp = ftp
+        self.options = options
     }
 }
 
@@ -48,6 +51,7 @@ public enum RcloneConfigError: Error, Equatable {
     case passwordAuthRequiresPassword
     case missingS3Credentials
     case missingFTPPassword
+    case missingSecret(String)
 }
 
 public enum RcloneConfigBuilder {
@@ -99,6 +103,15 @@ public enum RcloneConfigBuilder {
             case .explicit: lines.append("tls = true")
             case .implicit: lines.append("tls = true"); lines.append("explicit_tls = false")
             }
+
+        case .rclone(let cfg):
+            for opt in cfg.secretOptions where (secrets.options[opt.name] ?? "").isEmpty {
+                throw RcloneConfigError.missingSecret(opt.name)
+            }
+            lines.append("type = \(cfg.type)")
+            for key in cfg.options.keys.sorted() {
+                lines.append("\(key) = \(cfg.options[key] ?? "")")
+            }
         }
 
         return lines.joined(separator: "\n") + "\n"
@@ -124,5 +137,10 @@ public enum RcloneConfigBuilder {
     /// Env var name for S3 secret access key.
     public static func s3SecretEnvVar(remoteID: UUID) -> String {
         "RCLONE_CONFIG_\(sectionName.uppercased())_SECRET_ACCESS_KEY"
+    }
+
+    /// Env var rclone reads to override option `name` of the `r` remote at runtime.
+    public static func optionEnvVar(_ name: String) -> String {
+        "RCLONE_CONFIG_\(sectionName.uppercased())_\(name.uppercased())"
     }
 }
