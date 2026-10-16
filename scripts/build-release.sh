@@ -71,11 +71,19 @@ make_dmg() {
     cp -R "$app_path" "$stage/"
     ln -s /Applications "$stage/Applications"
 
-    echo "==> hdiutil create $dmg_path"
+    # hdiutil's automatic size estimate can come up short on newer macOS and fail
+    # with "No space left on device", so size the image explicitly (content + margin)
+    # and use HFS+ for the temporary image.
+    local size_mb
+    size_mb="$(( $(du -sk "$stage/$scheme.app" | cut -f1) / 1024 + 64 ))"
+
+    echo "==> hdiutil create $dmg_path (${size_mb} MB image)"
     hdiutil create \
         -volname "$scheme" \
         -srcfolder "$stage" \
         -ov \
+        -fs HFS+ \
+        -size "${size_mb}m" \
         -format UDZO \
         "$dmg_path" >/dev/null
 }
