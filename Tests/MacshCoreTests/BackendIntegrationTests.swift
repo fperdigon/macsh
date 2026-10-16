@@ -276,14 +276,14 @@ final class BackendIntegrationTests: XCTestCase {
         XCTAssertTrue(ok.ok, ok.message)
 
         let bad = try await IntegrationHarness.connectionTest(self, backend: good, draft: .init(options: ["pass": "wrong"]))
-        XCTAssertTrue(bad.message.hasPrefix("Authentication failed"), bad.message)
+        XCTAssertTrue(bad.message.hasPrefix("Authentication failed"), "\(bad.message) | \(bad.detail)")
 
         let down = smbBackend(port: "1", user: e["MACSH_IT_SMB_USER"]!, share: e["MACSH_IT_SMB_SHARE"]!)
         let unreachable = try await IntegrationHarness.connectionTest(self, backend: down, draft: .init(options: ["pass": "x"]))
-        XCTAssertTrue(unreachable.message.hasPrefix("Could not reach the server"), unreachable.message)
+        XCTAssertTrue(unreachable.message.hasPrefix("Could not reach the server"), "\(unreachable.message) | \(unreachable.detail)")
 
         let noShare = smbBackend(port: e["MACSH_IT_SMB_PORT"]!, user: e["MACSH_IT_SMB_USER"]!, share: "no-such-share")
         let missing = try await IntegrationHarness.connectionTest(self, backend: noShare, draft: .init(options: ["pass": e["MACSH_IT_SMB_PASS"]!]))
-        XCTAssertTrue(missing.message.hasPrefix("Folder or bucket not found"), missing.message)
+        XCTAssertTrue(missing.message.hasPrefix("Folder or bucket not found"), "\(missing.message) | \(missing.detail)")
     }
 }

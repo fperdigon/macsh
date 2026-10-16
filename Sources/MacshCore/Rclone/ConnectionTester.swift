@@ -3,9 +3,19 @@ import Foundation
 public struct ConnectionTestResult: Equatable {
     public let ok: Bool
     public let message: String
+    /// rclone's own last lines of output for a failure, for diagnostics ("" otherwise).
+    public let detail: String
+
+    public init(ok: Bool, message: String, detail: String = "") {
+        self.ok = ok
+        self.message = message
+        self.detail = detail
+    }
 
     public static func success(_ message: String) -> ConnectionTestResult { .init(ok: true, message: message) }
-    public static func failure(_ message: String) -> ConnectionTestResult { .init(ok: false, message: message) }
+    public static func failure(_ message: String, detail: String = "") -> ConnectionTestResult {
+        .init(ok: false, message: message, detail: detail)
+    }
 }
 
 /// "Test connection": lists the remote's folder with rclone before anything is saved or
@@ -71,7 +81,10 @@ public enum ConnectionTester {
             return .success(count == 0 ? "Connected (the folder is empty)"
                                        : "Connected — \(count) item\(count == 1 ? "" : "s") found")
         }
-        return .failure(explain(stderr: String(decoding: errData, as: UTF8.self)))
+        let stderr = String(decoding: errData, as: UTF8.self)
+        let detail = stderr.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }.suffix(3).joined(separator: "\n")
+        return .failure(explain(stderr: stderr), detail: detail)
     }
 
     /// Maps rclone's error output to something a person can act on.

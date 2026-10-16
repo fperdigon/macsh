@@ -67,6 +67,7 @@ final class ConnectionTesterRunTests: XCTestCase {
         let r = ConnectionTester.run(binary: rclone.binary, configText: "[r]\ntype = ftp\n", remotePath: "", env: [:])
         XCTAssertFalse(r.ok)
         XCTAssertTrue(r.message.hasPrefix("Authentication failed"), r.message)
+        XCTAssertEqual(r.detail, "Couldn't connect: 530 Login incorrect")
     }
 
     func testTimeoutIsReported() throws {
