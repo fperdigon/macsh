@@ -38,6 +38,7 @@ enum IntegrationHarness {
         secrets: Secrets,
         proto: MountProtocol,
         label: String,
+        readOnly: Bool = false,
         serverSide: @escaping (String) async -> String?
     ) async throws {
         let rclone = try RcloneBinary.resolve()
@@ -50,7 +51,7 @@ enum IntegrationHarness {
             rcloneBinary: rclone
         )
         let remote = Remote(id: UUID(), name: "macsh-it-\(label)-\(Int.random(in: 1000...9999))",
-                            backend: backend, mountProtocol: proto, autoMount: false)
+                            backend: backend, mountProtocol: proto, autoMount: false, readOnly: readOnly)
         try manager.add(remote, sftpSecrets: secrets.sftp, s3Secrets: secrets.s3,
                         ftpSecrets: secrets.ftp, optionSecrets: secrets.options)
         test.addTeardownBlock { @MainActor in
@@ -66,6 +67,18 @@ enum IntegrationHarness {
 
         let fileName = "macsh-\(label)-\(UUID().uuidString).txt"
         let payload = "hello from macsh \(UUID().uuidString)"
+
+        if readOnly {
+            // Writes must be rejected and nothing may reach the server.
+            XCTAssertThrowsError(try payload.write(toFile: "\(mountpoint)/\(fileName)", atomically: false, encoding: .utf8),
+                                 "\(label): write succeeded on a read-only mount")
+            try await Task.sleep(nanoseconds: 3_000_000_000)
+            let leaked = await serverSide(fileName)
+            XCTAssertNil(leaked, "\(label): file reached the server from a read-only mount")
+            try await manager.unmount(remoteID: remote.id)
+            return
+        }
+
         try payload.write(toFile: "\(mountpoint)/\(fileName)", atomically: false, encoding: .utf8)
         XCTAssertEqual(try String(contentsOfFile: "\(mountpoint)/\(fileName)", encoding: .utf8), payload)
 
@@ -85,5 +98,23 @@ enum IntegrationHarness {
     /// Server-side check for backends whose storage is a local directory.
     static func readLocal(_ dir: String) -> (String) async -> String? {
         { name in try? String(contentsOfFile: "\(dir)/\(name)", encoding: .utf8) }
+    }
+}
+
+extension IntegrationHarness {
+    /// "Test connection" against a real server, with the secrets as typed in the form.
+    static func connectionTest(
+        _ test: XCTestCase, backend: Backend, draft: SessionManager.DraftSecrets
+    ) async throws -> ConnectionTestResult {
+        let dir = try makeTempDir()
+        test.addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        let manager = SessionManager(
+            store: RemoteStore(directory: dir),
+            keychain: KeychainService(serviceName: "macsh.it.\(UUID().uuidString)"),
+            mounter: Mounter(), logsDir: dir.appendingPathComponent("logs"),
+            rcloneBinary: try RcloneBinary.resolve())
+        let remote = Remote(id: UUID(), name: "macsh-it-test", backend: backend,
+                            mountProtocol: .webdav, autoMount: false)
+        return await manager.testConnection(remote, draft: draft)
     }
 }

@@ -367,6 +367,84 @@ final class SessionManagerTests: XCTestCase {
         XCTAssertNil(try f.keychain.get(remoteID: r.id, kind: .option("token")))
     }
 
+    // MARK: - Mount options and Test connection
+
+    func testMountPassesReadOnlyAndBandwidthLimit() async throws {
+        let f = try makeFixture()
+        var r = makeRemote(backend: ftpBackend())
+        r.readOnly = true
+        r.bandwidthLimit = "10M:1M"
+        try f.manager.add(r, ftpSecrets: FTPSecrets(password: "pw"))
+        try await f.manager.mount(remoteID: r.id)
+        let lines = f.rclone.recordedLines()
+        XCTAssertTrue(lines.contains("--read-only"))
+        let i = try XCTUnwrap(lines.firstIndex(of: "--bwlimit"))
+        XCTAssertEqual(lines[i + 1], "10M:1M")
+        try await f.manager.unmount(remoteID: r.id)
+    }
+
+    func testMountWithoutOptionsHasNoReadOnlyOrBwlimit() async throws {
+        let f = try makeFixture()
+        let r = makeRemote(backend: ftpBackend(), proto: .nfs)
+        try f.manager.add(r, ftpSecrets: FTPSecrets(password: "pw"))
+        try await f.manager.mount(remoteID: r.id)
+        let lines = f.rclone.recordedLines()
+        XCTAssertFalse(lines.contains("--read-only"))
+        XCTAssertFalse(lines.contains("--bwlimit"))
+        try await f.manager.unmount(remoteID: r.id)
+    }
+
+    func testConnectionUsesUnsavedFormSecretsAndStoresNothing() async throws {
+        let f = try makeFixture()
+        let r = makeRemote(backend: ftpBackend())          // never added
+        let result = await f.manager.testConnection(r, draft: .init(ftp: FTPSecrets(password: "typed")))
+        XCTAssertEqual(result, .success("Connected — 2 items found"))
+        let lines = f.rclone.recordedLines()
+        XCTAssertEqual(lines.first, "lsf")
+        XCTAssertTrue(lines.contains("ENV:RCLONE_CONFIG_R_PASS=OBS-typed"))
+        XCTAssertTrue(f.manager.sessions.isEmpty)
+        XCTAssertNil(try f.keychain.get(remoteID: r.id, kind: .password))
+    }
+
+    func testConnectionFallsBackToSavedSecretWhenFormIsBlank() async throws {
+        let f = try makeFixture()
+        let r = makeRemote(backend: ftpBackend())
+        try f.manager.add(r, ftpSecrets: FTPSecrets(password: "saved"))
+        let result = await f.manager.testConnection(r, draft: .init(ftp: FTPSecrets(password: "")))
+        XCTAssertTrue(result.ok)
+        XCTAssertTrue(f.rclone.recordedLines().contains("ENV:RCLONE_CONFIG_R_PASS=OBS-saved"))
+    }
+
+    func testConnectionWithoutAnySecretExplainsWhatIsMissing() async throws {
+        let f = try makeFixture()
+        let result = await f.manager.testConnection(makeRemote(backend: ftpBackend()))
+        XCTAssertFalse(result.ok)
+        XCTAssertEqual(result.message, "No password is saved for this remote.")
+        let drive = await f.manager.testConnection(makeRemote(backend: driveBackend()))
+        XCTAssertTrue(drive.message.contains("\"token\""), drive.message)
+    }
+
+    func testConnectionForS3UsesBucketAndPrefixAsPath() async throws {
+        let f = try makeFixture()
+        let result = await f.manager.testConnection(
+            makeRemote(backend: s3Backend(prefix: "pre")),
+            draft: .init(s3: S3Secrets(accessKeyID: "AK", secretAccessKey: "SK")))
+        XCTAssertTrue(result.ok)
+        let lines = f.rclone.recordedLines()
+        XCTAssertEqual(Array(lines.prefix(2)), ["lsf", "r:bkt/pre"])
+        XCTAssertTrue(lines.contains("ENV:RCLONE_CONFIG_R_SECRET_ACCESS_KEY=SK"))
+    }
+
+    func testConnectionWithGeneratedKeyCleansUpTheTemporaryKey() async throws {
+        let f = try makeFixture()
+        let r = makeRemote(backend: sftpBackend(auth: .generatedKey))
+        let result = await f.manager.testConnection(
+            r, draft: .init(sftp: SFTPSecrets(password: nil, privateKeyPath: "PEMDATA", keyPassphrase: nil)))
+        XCTAssertTrue(result.ok)
+        let keyPath = FileManager.default.temporaryDirectory.appendingPathComponent("macsh-key-\(r.id.uuidString)").path
+        XCTAssertFalse(FileManager.default.fileExists(atPath: keyPath))
+    }
+
     func testMountNFSUsesResolvedMountpoint() async throws {
         let f = try makeFixture()
         let r = makeRemote(name: "nfsbox", backend: sftpBackend(), proto: .nfs)

@@ -35,9 +35,10 @@ public final class RcloneProcess {
         baseurl: String,
         liveUpdates: Bool,
         tuning: TransferTuning = .defaults(for: .webdav),
-        envOverrides: [String: String] = [:]
+        envOverrides: [String: String] = [:],
+        extraArgs: [String] = []
     ) throws -> Spawned {
-        let extra = ["--baseurl", baseurl] + tuning.serveArgs(liveUpdates: liveUpdates)
+        let extra = ["--baseurl", baseurl] + tuning.serveArgs(liveUpdates: liveUpdates) + extraArgs
         return try spawn(
             serveSubcommand: "webdav",
             extraServeArgs: extra,
@@ -57,9 +58,10 @@ public final class RcloneProcess {
         configText: String,
         liveUpdates: Bool,
         tuning: TransferTuning = .defaults(for: .nfs),
-        envOverrides: [String: String] = [:]
+        envOverrides: [String: String] = [:],
+        extraArgs: [String] = []
     ) throws -> Spawned {
-        let extra = tuning.serveArgs(liveUpdates: liveUpdates)
+        let extra = tuning.serveArgs(liveUpdates: liveUpdates) + extraArgs
         return try spawn(
             serveSubcommand: "nfs",
             extraServeArgs: extra,

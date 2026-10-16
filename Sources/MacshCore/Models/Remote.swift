@@ -9,6 +9,10 @@ public struct Remote: Codable, Equatable, Identifiable {
     public var liveUpdates: Bool
     /// nil = `TransferTuning.defaults(for: mountProtocol)`.
     public var tuning: TransferTuning?
+    /// Reject writes (`rclone serve --read-only`).
+    public var readOnly: Bool
+    /// rclone `--bwlimit` such as `10M` or `10M:1M`; nil = unlimited.
+    public var bandwidthLimit: String?
 
     public init(
         id: UUID,
@@ -17,7 +21,9 @@ public struct Remote: Codable, Equatable, Identifiable {
         mountProtocol: MountProtocol,
         autoMount: Bool,
         liveUpdates: Bool = true,
-        tuning: TransferTuning? = nil
+        tuning: TransferTuning? = nil,
+        readOnly: Bool = false,
+        bandwidthLimit: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -26,10 +32,12 @@ public struct Remote: Codable, Equatable, Identifiable {
         self.autoMount = autoMount
         self.liveUpdates = liveUpdates
         self.tuning = tuning
+        self.readOnly = readOnly
+        self.bandwidthLimit = bandwidthLimit
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, backend, mountProtocol, autoMount, liveUpdates, tuning
+        case id, name, backend, mountProtocol, autoMount, liveUpdates, tuning, readOnly, bandwidthLimit
     }
 
     public init(from decoder: Decoder) throws {
@@ -42,6 +50,8 @@ public struct Remote: Codable, Equatable, Identifiable {
         // Pre-existing remotes.json files predate this field; default to live (matches the form default).
         self.liveUpdates = try c.decodeIfPresent(Bool.self, forKey: .liveUpdates) ?? true
         self.tuning = try c.decodeIfPresent(TransferTuning.self, forKey: .tuning)
+        self.readOnly = try c.decodeIfPresent(Bool.self, forKey: .readOnly) ?? false
+        self.bandwidthLimit = try c.decodeIfPresent(String.self, forKey: .bandwidthLimit)
     }
 }
 

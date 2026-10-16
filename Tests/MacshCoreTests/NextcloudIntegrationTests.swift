@@ -24,4 +24,17 @@ final class NextcloudIntegrationTests: XCTestCase {
 
     func testNextcloudNFSRoundTrip() async throws { try await run(.nfs) }
     func testNextcloudWebDAVRoundTrip() async throws { try await run(.webdav) }
+
+    func testNextcloudConnectionTestGoodAndBadPassword() async throws {
+        let e = try IntegrationEnv.require("MACSH_IT_NEXTCLOUD_URL", "MACSH_IT_NEXTCLOUD_USER", "MACSH_IT_NEXTCLOUD_PASS")
+        let backend = Backend.rclone(BackendDescriptor.webdav.makeConfig(
+            values: ["url": e["MACSH_IT_NEXTCLOUD_URL"]!, "vendor": "nextcloud", "user": e["MACSH_IT_NEXTCLOUD_USER"]!],
+            remotePath: ""))
+        let ok = try await IntegrationHarness.connectionTest(
+            self, backend: backend, draft: .init(options: ["pass": e["MACSH_IT_NEXTCLOUD_PASS"]!]))
+        XCTAssertTrue(ok.ok, ok.message)
+        let bad = try await IntegrationHarness.connectionTest(self, backend: backend, draft: .init(options: ["pass": "wrong"]))
+        XCTAssertFalse(bad.ok)
+        XCTAssertTrue(bad.message.hasPrefix("Authentication failed"), bad.message)
+    }
 }
