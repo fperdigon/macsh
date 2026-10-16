@@ -92,8 +92,11 @@ cat > "$D/samba/smb.conf" <<CFG
   read only = no
   valid users = $SMB_USER
 CFG
-printf '%s\n%s\n' "$PASS" "$PASS" | "$SAMBA_PREFIX/bin/smbpasswd" -L -c "$D/samba/smb.conf" -a -s "$SMB_USER"
-nohup "$SAMBA_PREFIX/sbin/smbd" --foreground --no-process-group -s "$D/samba/smb.conf" > "$D/smb.log" 2>&1 &
+# Adding a Samba user needs root (local mode); the server itself then runs as this user.
+printf '%s\n%s\n' "$PASS" "$PASS" | sudo "$SAMBA_PREFIX/bin/smbpasswd" -L -c "$D/samba/smb.conf" -a -s "$SMB_USER"
+sudo chown -R "$SMB_USER" "$D/samba"
+# Homebrew installs smbd as samba-dot-org-smbd to avoid clashing with macOS's own.
+nohup "$SAMBA_PREFIX/sbin/samba-dot-org-smbd" --foreground --no-process-group -s "$D/samba/smb.conf" > "$D/smb.log" 2>&1 &
 for _ in $(seq 1 30); do nc -z 127.0.0.1 4450 && break; sleep 0.5; done
 nc -z 127.0.0.1 4450 || { echo "Samba did not start"; cat "$D/smb.log"; tail -n 30 "$D"/samba/log.* 2>/dev/null; exit 1; }
 export_env MACSH_IT_SMB_PORT 4450
