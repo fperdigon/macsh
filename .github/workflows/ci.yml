@@ -88,7 +88,9 @@ jobs:
         run: ./scripts/ci/start-nextcloud.sh
 
       - name: Nextcloud round-trip tests (NFS and WebDAV mounts)
-        run: swift test --filter NextcloudIntegrationTests
+        run: |
+          set -o pipefail
+          swift test --filter NextcloudIntegrationTests 2>&1 | tee it.log
 
       - name: Diagnostics
         if: failure()
@@ -96,6 +98,10 @@ jobs:
           tail -n 50 "$RUNNER_TEMP/nextcloud-it/server.log" || true
           tail -n 50 "$RUNNER_TEMP"/nextcloud-it/data/nextcloud.log || true
           mount | grep -i -E "macsh|127.0.0.1" || true
+
+      - name: Failure digest
+        if: failure()
+        run: grep -E "error:|failed \(" it.log | grep -v warning | cut -c1-1200 || true
 
   # SFTP (asyncssh, password + key auth), FTP, S3 and SMB servers on localhost, driven through
   # macsh's real pipeline with NFS and WebDAV mounts.
@@ -109,14 +115,20 @@ jobs:
         run: ./scripts/ci/start-backends.sh
 
       - name: Backend round-trip tests
-        run: swift test --filter BackendIntegrationTests
+        run: |
+          set -o pipefail
+          swift test --filter BackendIntegrationTests 2>&1 | tee it.log
 
       - name: Diagnostics
         if: failure()
         run: |
           tail -n 40 /tmp/macsh-it/sshd.log || true
-          tail -n 40 /tmp/macsh-it/ftp.log /tmp/macsh-it/s3.log /tmp/macsh-it/smb.log || true
+          tail -n 5 /tmp/macsh-it/ftp.log /tmp/macsh-it/s3.log /tmp/macsh-it/smb.log || true
           mount | grep -i -E "macsh|127.0.0.1" || true
+
+      - name: Failure digest
+        if: failure()
+        run: grep -E "error:|failed \(" it.log | grep -v warning | cut -c1-1200 || true
 
   # Real Google Drive. Needs a test account: add the repository secret MACSH_IT_GDRIVE_TOKEN
   # (output of `rclone authorize drive`; optionally MACSH_IT_GDRIVE_CLIENT_ID/_CLIENT_SECRET and
