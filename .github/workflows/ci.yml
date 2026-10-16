@@ -43,3 +43,24 @@ jobs:
         with:
           name: coverage-report
           path: coverage.txt
+
+  # Real Nextcloud (native PHP + SQLite; containers can't run on Apple Silicon runners)
+  # driven through macsh's actual WebDAV backend, rclone and macOS mounts.
+  nextcloud-integration:
+    runs-on: macos-14
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start Nextcloud
+        run: ./scripts/ci/start-nextcloud.sh
+
+      - name: Nextcloud round-trip tests (NFS and WebDAV mounts)
+        run: swift test --filter NextcloudIntegrationTests
+
+      - name: Diagnostics
+        if: failure()
+        run: |
+          tail -n 50 "$RUNNER_TEMP/nextcloud-it/server.log" || true
+          tail -n 50 "$RUNNER_TEMP"/nextcloud-it/data/nextcloud.log || true
+          mount | grep -i -E "macsh|127.0.0.1" || true
