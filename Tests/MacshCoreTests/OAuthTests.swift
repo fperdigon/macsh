@@ -56,7 +56,7 @@ final class OAuthAuthorizerTests: XCTestCase {
         let (rclone, _) = try make()
         let token = try await OAuthAuthorizer().authorize(
             binary: rclone.binary, backend: "drive", clientID: "cid", clientSecret: "csecret", scope: "drive.readonly")
-        XCTAssertTrue(token.contains("\\"refresh_token\\":\\"RT\\""))
+        XCTAssertTrue(token.contains(#""refresh_token":"RT""#))
         let lines = rclone.recordedLines()
         XCTAssertEqual(Array(lines.prefix(4)), ["authorize", "drive", "cid", "csecret"])
         XCTAssertTrue(lines.contains("ENV:RCLONE_DRIVE_SCOPE=drive.readonly"))
@@ -111,7 +111,7 @@ final class OAuthAuthorizerTests: XCTestCase {
             _ = try await OAuthAuthorizer().authorize(binary: URL(fileURLWithPath: "/nonexistent/rclone"), backend: "drive")
             XCTFail("expected failure")
         } catch {
-            guard case OAuthError.launchFailed = error else { return XCTFail("\\(error)") }
+            guard case OAuthError.launchFailed = error else { return XCTFail("\(error)") }
         }
     }
 }
