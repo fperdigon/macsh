@@ -91,7 +91,8 @@ final class UpdateEndToEndTests: XCTestCase {
         guard h.terminationStatus == 0 else { throw XCTSkip("hdiutil unavailable") }
         _ = newApp
 
-        let digest = digestOverride ?? "sha256:" + (try UpdateInstaller.sha256(of: dmg))
+        let realDigest = "sha256:" + (try UpdateInstaller.sha256(of: dmg))
+        let digest = digestOverride ?? realDigest
         func release(_ tag: String, name: String, prerelease: Bool, date: String) -> String {
             #"{"tag_name":"\#(tag)","name":"\#(name)","prerelease":\#(prerelease),"draft":false,"published_at":"\#(date)","body":"notes","html_url":"{{BASE}}/r/\#(tag)","assets":[{"name":"macsh-0.1.4.dmg","browser_download_url":"{{BASE}}/download/macsh-0.1.4.dmg","size":1,"digest":"\#(digest)"}]}"#
         }
