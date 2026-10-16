@@ -327,6 +327,46 @@ final class SessionManagerTests: XCTestCase {
         if case .failed = f.manager.sessions[0].status {} else { XCTFail("expected failed status") }
     }
 
+    // MARK: - OAuth backend (Google Drive)
+
+    func testMountDriveSendsTokenUnobscuredAndSkipsOptionalSecret() async throws {
+        let f = try makeFixture()
+        let r = makeRemote(backend: driveBackend())
+        try f.manager.add(r, optionSecrets: ["token": "TOKENJSON", "client_secret": ""])
+        try await f.manager.mount(remoteID: r.id)
+        let lines = f.rclone.recordedLines()
+        XCTAssertTrue(lines.contains("ENV:RCLONE_CONFIG_R_TOKEN=TOKENJSON"), "token is not obscured")
+        XCTAssertFalse(lines.contains { $0.hasPrefix("ENV:RCLONE_CONFIG_R_CLIENT_SECRET") })
+        try await f.manager.unmount(remoteID: r.id)
+    }
+
+    func testRefreshedTokenIsWrittenBackToKeychainOnUnmount() async throws {
+        let f = try makeFixture()
+        let r = makeRemote(backend: driveBackend())
+        try f.manager.add(r, optionSecrets: ["token": "OLD"])
+        // Fake rclone appends this to its config while serving, like a real token refresh.
+        try "NEWTOKEN".write(to: f.dir.appendingPathComponent("refresh-token.txt"), atomically: true, encoding: .utf8)
+
+        try await f.manager.mount(remoteID: r.id)
+        let configURL = try XCTUnwrap(f.manager.sessions[0].rcloneConfigURL)
+        XCTAssertEqual(try f.keychain.get(remoteID: r.id, kind: .option("token")), "OLD", "not persisted until unmount")
+        try await f.manager.unmount(remoteID: r.id)
+
+        XCTAssertEqual(try f.keychain.get(remoteID: r.id, kind: .option("token")), "NEWTOKEN")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: configURL.path), "temp config removed")
+    }
+
+    func testUnchangedTokenIsLeftAloneAndNonRefreshableOptionsAreIgnored() async throws {
+        let f = try makeFixture()
+        let r = makeRemote(backend: webdavBackend())
+        try f.manager.add(r, optionSecrets: ["pass": "apppw"])
+        try "NEWTOKEN".write(to: f.dir.appendingPathComponent("refresh-token.txt"), atomically: true, encoding: .utf8)
+        try await f.manager.mount(remoteID: r.id)
+        try await f.manager.unmount(remoteID: r.id)
+        XCTAssertEqual(try f.keychain.get(remoteID: r.id, kind: .option("pass")), "apppw")
+        XCTAssertNil(try f.keychain.get(remoteID: r.id, kind: .option("token")))
+    }
+
     func testMountNFSUsesResolvedMountpoint() async throws {
         let f = try makeFixture()
         let r = makeRemote(name: "nfsbox", backend: sftpBackend(), proto: .nfs)

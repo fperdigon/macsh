@@ -17,7 +17,29 @@ struct FakeRclone {
         if args and args[0] == "obscure":
             print("OBS-" + args[1])
             sys.exit(0)
+        here = os.path.dirname(os.path.abspath(__file__))
+        if args and args[0] == "authorize":
+            lines = list(args) + ["ENV:RCLONE_DRIVE_SCOPE=" + os.environ.get("RCLONE_DRIVE_SCOPE", "")]
+            with open("\(argsFile.path)", "w") as f:
+                f.write("\\n".join(lines))
+            mode = open(os.path.join(here, "authorize-mode.txt")).read().strip() if os.path.exists(os.path.join(here, "authorize-mode.txt")) else "ok"
+            if mode == "fail":
+                sys.stderr.write("Failed to authorize: access denied\\n")
+                sys.exit(1)
+            if mode == "hang":
+                import time
+                time.sleep(60)
+            print("Waiting for code...")
+            print("Paste the following into your remote machine --->")
+            print('{"access_token":"AT","token_type":"Bearer","refresh_token":"RT","expiry":"2030-01-01T00:00:00Z"}')
+            print("<---End paste")
+            sys.exit(0)
         lines = list(args)
+        # Simulate rclone refreshing an OAuth token: rewrite the --config file like rclone does.
+        refresh = os.path.join(here, "refresh-token.txt")
+        if "serve" in args and "--config" in args and os.path.exists(refresh):
+            with open(args[args.index("--config") + 1], "a") as cf:
+                cf.write("token = " + open(refresh).read().strip() + "\n")
         for k in sorted(os.environ):
             if k.startswith("RCLONE_CONFIG_") or k == "MACSH_TEST_ENV":
                 lines.append("ENV:%s=%s" % (k, os.environ[k]))
@@ -92,5 +114,11 @@ func ftpBackend() -> Backend {
 func webdavBackend(remotePath: String = "docs") -> Backend {
     .rclone(BackendDescriptor.webdav.makeConfig(
         values: ["url": "https://cloud.example.com/remote.php/dav/files/bob/", "vendor": "nextcloud", "user": "bob", "pass": ""],
+        remotePath: remotePath))
+}
+
+func driveBackend(remotePath: String = "", clientID: String = "") -> Backend {
+    .rclone(BackendDescriptor.googleDrive.makeConfig(
+        values: ["scope": "drive", "token": "", "client_id": clientID, "client_secret": ""],
         remotePath: remotePath))
 }

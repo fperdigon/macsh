@@ -216,6 +216,7 @@ public final class SessionManager: ObservableObject {
         let logFile = logsDir.appendingPathComponent("\(remote.id.uuidString).log")
         var ephemeralKeyURL: URL? = nil
         var spawnedProcess: Process? = nil
+        var spawnedConfig: URL? = nil
         var envOverrides: [String: String] = [:]
         var bundle = BackendSecrets()
         var remotePath: String
@@ -282,7 +283,8 @@ public final class SessionManager: ObservableObject {
             case .rclone(let cfg):
                 for opt in cfg.secretOptions {
                     guard let value = try keychain.get(remoteID: remote.id, kind: .option(opt.name)), !value.isEmpty else {
-                        throw RcloneConfigError.missingSecret(opt.name)
+                        if opt.required { throw RcloneConfigError.missingSecret(opt.name) }
+                        continue
                     }
                     bundle.options[opt.name] = value
                     var envValue = value
@@ -326,6 +328,7 @@ public final class SessionManager: ObservableObject {
                 )
             }
             spawnedProcess = spawned.process
+            spawnedConfig = spawned.configURL
             try await waitForPort(spawned.port, process: spawned.process, timeout: portWaitTimeout)
 
             let mountpoint: String
@@ -347,10 +350,12 @@ public final class SessionManager: ObservableObject {
             session.rcloneProcess = spawned.process
             session.mountpoint = mountpoint
             session.ephemeralKeyURL = ephemeralKeyURL
+            session.rcloneConfigURL = spawned.configURL
             session.transition(to: .mounted(at: mountpoint))
         } catch {
             if let url = ephemeralKeyURL { try? FileManager.default.removeItem(at: url) }
             if let proc = spawnedProcess, proc.isRunning { proc.terminate() }
+            if let cfg = spawnedConfig { try? FileManager.default.removeItem(at: cfg.deletingLastPathComponent()) }
             var reason = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             // rclone's own explanation (bad key, auth failure, ...) only goes to its log.
             if let tail = Self.logTail(of: logFile) { reason += "\n" + tail }
@@ -400,10 +405,29 @@ public final class SessionManager: ObservableObject {
         if let url = session.ephemeralKeyURL {
             try? FileManager.default.removeItem(at: url)
         }
+        persistRefreshedSecrets(session)
         session.rcloneProcess = nil
         session.mountpoint = nil
         session.ephemeralKeyURL = nil
+        session.rcloneConfigURL = nil
         session.transition(to: .idle)
+    }
+
+    /// rclone rewrites its config when it refreshes an OAuth token. The config is a throw-away
+    /// temp file, so copy refreshed values (options marked `refreshable`) back into the
+    /// Keychain before deleting it; otherwise providers that rotate refresh tokens break.
+    private func persistRefreshedSecrets(_ session: RemoteSession) {
+        guard let url = session.rcloneConfigURL else { return }
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        guard case .rclone(let cfg) = session.remote.backend,
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+        for opt in cfg.secretOptions where opt.refreshable {
+            guard let fresh = RcloneConfigReader.value(of: opt.name, in: text), !fresh.isEmpty else { continue }
+            let old = (try? keychain.get(remoteID: session.id, kind: .option(opt.name))) ?? nil
+            if fresh != old {
+                try? keychain.set(remoteID: session.id, kind: .option(opt.name), value: fresh)
+            }
+        }
     }
 
     public func shutdownAll() {

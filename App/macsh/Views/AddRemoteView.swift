@@ -2,7 +2,7 @@ import SwiftUI
 import MacshCore
 
 enum AddBackendKind: String, CaseIterable, Identifiable {
-    case sftp, s3, ftp, webdav
+    case sftp, s3, ftp, webdav, gdrive
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -10,6 +10,7 @@ enum AddBackendKind: String, CaseIterable, Identifiable {
         case .s3:   return "S3-compatible"
         case .ftp:  return "FTP / FTPS"
         case .webdav: return BackendDescriptor.webdav.displayName
+        case .gdrive: return BackendDescriptor.googleDrive.displayName
         }
     }
 }
@@ -29,6 +30,8 @@ struct AddRemoteView: View {
     @State private var s3: S3FormDraft
     @State private var ftp: FTPFormDraft
     @State private var webdav: GenericFormDraft
+    @State private var gdrive: GenericFormDraft
+    @State private var authorizer = OAuthAuthorizer()
     @State private var error: String?
     @State private var customizeTuning: Bool
     @State private var tuning: TransferTuning
@@ -43,6 +46,8 @@ struct AddRemoteView: View {
         var ftpDraft = FTPFormDraft()
         var webdavDraft = GenericFormDraft(descriptor: .webdav)
         webdavDraft.mountProtocol = prefs.defaultProtocol
+        var gdriveDraft = GenericFormDraft(descriptor: .googleDrive)
+        gdriveDraft.mountProtocol = prefs.defaultProtocol
         sftpDraft.mountProtocol = prefs.defaultProtocol
         s3Draft.mountProtocol = prefs.defaultProtocol
         ftpDraft.mountProtocol = prefs.defaultProtocol
@@ -58,8 +63,13 @@ struct AddRemoteView: View {
             case .ftp:  initialKind = .ftp;  ftpDraft  = FTPFormDraft(editing: r)
             case .rclone(let cfg):
                 if let d = BackendDescriptor.descriptor(forType: cfg.type) {
-                    initialKind = .webdav
-                    webdavDraft = GenericFormDraft(editing: r, descriptor: d)
+                    if d.type == BackendDescriptor.googleDrive.type {
+                        initialKind = .gdrive
+                        gdriveDraft = GenericFormDraft(editing: r, descriptor: d)
+                    } else {
+                        initialKind = .webdav
+                        webdavDraft = GenericFormDraft(editing: r, descriptor: d)
+                    }
                 }
             }
         }
@@ -71,6 +81,7 @@ struct AddRemoteView: View {
         _s3 = State(initialValue: s3Draft)
         _ftp = State(initialValue: ftpDraft)
         _webdav = State(initialValue: webdavDraft)
+        _gdrive = State(initialValue: gdriveDraft)
     }
 
     private var isEditing: Bool { editingRemote != nil }
@@ -81,6 +92,7 @@ struct AddRemoteView: View {
         case .s3:   return s3.mountProtocol
         case .ftp:  return ftp.mountProtocol
         case .webdav: return webdav.mountProtocol
+        case .gdrive: return gdrive.mountProtocol
         }
     }
 
@@ -124,7 +136,8 @@ struct AddRemoteView: View {
         case .sftp: SFTPFormView(draft: $sftp)
         case .s3:   S3FormView(draft: $s3)
         case .ftp:  FTPFormView(draft: $ftp)
-        case .webdav: GenericBackendFormView(draft: $webdav)
+        case .webdav: GenericBackendFormView(draft: $webdav, prefs: prefs, authorizer: authorizer)
+        case .gdrive: GenericBackendFormView(draft: $gdrive, prefs: prefs, authorizer: authorizer)
         }
     }
 
@@ -173,6 +186,12 @@ struct AddRemoteView: View {
             case .webdav:
                 if let v = webdav.validate() { error = v; return }
                 var (remote, secrets) = webdav.toRemoteAndSecrets()
+                remote.tuning = chosenTuning
+                if isEditing { try manager.update(remote, optionSecrets: secrets) }
+                else { try manager.add(remote, optionSecrets: secrets) }
+            case .gdrive:
+                if let v = gdrive.validate() { error = v; return }
+                var (remote, secrets) = gdrive.toRemoteAndSecrets()
                 remote.tuning = chosenTuning
                 if isEditing { try manager.update(remote, optionSecrets: secrets) }
                 else { try manager.add(remote, optionSecrets: secrets) }
