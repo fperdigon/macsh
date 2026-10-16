@@ -105,7 +105,7 @@ public enum ConnectionTester {
             return "Could not reach the server — check the host, port and network."
         }
         if has("directory not found", "nosuchbucket", "no such file", "object not found",
-               "bucket not found", "couldn't find", "404 not found", "error listing",
+               "bucket not found", "couldn't find", "404 not found",
                "bad_network_name", "network name") {
             return "Folder or bucket not found — check the path."
         }
