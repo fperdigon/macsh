@@ -91,4 +91,91 @@ final class BackendIntegrationTests: XCTestCase {
 
     func testS3NFS() async throws { try await s3(.nfs) }
     func testS3WebDAV() async throws { try await s3(.webdav) }
+
+    // MARK: Read-only mounts
+
+    func testSFTPReadOnlyRejectsWrites() async throws {
+        let s = try sftpEnv()
+        try await IntegrationHarness.roundTrip(
+            self, backend: sftpBackend(s, auth: .password),
+            secrets: .init(sftp: SFTPSecrets(password: s.pass, privateKeyPath: nil, keyPassphrase: nil)),
+            proto: .nfs, label: "sftp-ro-nfs", readOnly: true, serverSide: IntegrationHarness.readLocal(s.dir))
+        try await IntegrationHarness.roundTrip(
+            self, backend: sftpBackend(s, auth: .password),
+            secrets: .init(sftp: SFTPSecrets(password: s.pass, privateKeyPath: nil, keyPassphrase: nil)),
+            proto: .webdav, label: "sftp-ro-dav", readOnly: true, serverSide: IntegrationHarness.readLocal(s.dir))
+    }
+
+    func testFTPReadOnlyRejectsWrites() async throws {
+        let e = try IntegrationEnv.require("MACSH_IT_FTP_PORT", "MACSH_IT_FTP_USER", "MACSH_IT_FTP_PASS", "MACSH_IT_FTP_DIR")
+        let backend = Backend.ftp(FTPConfig(host: "127.0.0.1", port: Int(e["MACSH_IT_FTP_PORT"]!)!,
+                                            user: e["MACSH_IT_FTP_USER"]!, remotePath: "/", tlsMode: .off))
+        try await IntegrationHarness.roundTrip(
+            self, backend: backend, secrets: .init(ftp: FTPSecrets(password: e["MACSH_IT_FTP_PASS"]!)),
+            proto: .nfs, label: "ftp-ro", readOnly: true,
+            serverSide: IntegrationHarness.readLocal(e["MACSH_IT_FTP_DIR"]!))
+    }
+
+    // MARK: Test connection
+
+    func testConnectionSFTPGoodBadPasswordUnreachableAndBadFolder() async throws {
+        let s = try sftpEnv()
+        func draft(_ pw: String) -> SessionManager.DraftSecrets {
+            .init(sftp: SFTPSecrets(password: pw, privateKeyPath: nil, keyPassphrase: nil))
+        }
+        let ok = try await IntegrationHarness.connectionTest(self, backend: sftpBackend(s, auth: .password), draft: draft(s.pass))
+        XCTAssertTrue(ok.ok, ok.message)
+
+        let bad = try await IntegrationHarness.connectionTest(self, backend: sftpBackend(s, auth: .password), draft: draft("wrong"))
+        XCTAssertFalse(bad.ok)
+        XCTAssertTrue(bad.message.hasPrefix("Authentication failed"), bad.message)
+
+        let down = Backend.sftp(SFTPConfig(host: "127.0.0.1", port: 1, user: s.user, remotePath: s.dir, authKind: .password))
+        let unreachable = try await IntegrationHarness.connectionTest(self, backend: down, draft: draft(s.pass))
+        XCTAssertTrue(unreachable.message.hasPrefix("Could not reach the server"), unreachable.message)
+
+        let noDir = Backend.sftp(SFTPConfig(host: "127.0.0.1", port: s.port, user: s.user,
+                                            remotePath: s.dir + "/does-not-exist", authKind: .password))
+        let missing = try await IntegrationHarness.connectionTest(self, backend: noDir, draft: draft(s.pass))
+        XCTAssertTrue(missing.message.hasPrefix("Folder or bucket not found"), missing.message)
+    }
+
+    func testConnectionSFTPKeyFile() async throws {
+        let s = try sftpEnv()
+        let ok = try await IntegrationHarness.connectionTest(
+            self, backend: sftpBackend(s, auth: .keyFile),
+            draft: .init(sftp: SFTPSecrets(password: nil, privateKeyPath: s.key, keyPassphrase: nil)))
+        XCTAssertTrue(ok.ok, ok.message)
+    }
+
+    func testConnectionFTPGoodAndBadPassword() async throws {
+        let e = try IntegrationEnv.require("MACSH_IT_FTP_PORT", "MACSH_IT_FTP_USER", "MACSH_IT_FTP_PASS")
+        let backend = Backend.ftp(FTPConfig(host: "127.0.0.1", port: Int(e["MACSH_IT_FTP_PORT"]!)!,
+                                            user: e["MACSH_IT_FTP_USER"]!, remotePath: "/", tlsMode: .off))
+        let ok = try await IntegrationHarness.connectionTest(self, backend: backend,
+                                                             draft: .init(ftp: FTPSecrets(password: e["MACSH_IT_FTP_PASS"]!)))
+        XCTAssertTrue(ok.ok, ok.message)
+        let bad = try await IntegrationHarness.connectionTest(self, backend: backend,
+                                                              draft: .init(ftp: FTPSecrets(password: "wrong")))
+        XCTAssertTrue(bad.message.hasPrefix("Authentication failed"), bad.message)
+    }
+
+    func testConnectionS3GoodBadSecretAndMissingBucket() async throws {
+        let e = try IntegrationEnv.require("MACSH_IT_S3_ENDPOINT", "MACSH_IT_S3_ACCESS", "MACSH_IT_S3_SECRET", "MACSH_IT_S3_BUCKET")
+        func backend(bucket: String) -> Backend {
+            .s3(S3Config(provider: .other, region: "us-east-1", endpoint: e["MACSH_IT_S3_ENDPOINT"]!, bucket: bucket, prefix: ""))
+        }
+        let good = SessionManager.DraftSecrets(s3: S3Secrets(accessKeyID: e["MACSH_IT_S3_ACCESS"]!, secretAccessKey: e["MACSH_IT_S3_SECRET"]!))
+        let ok = try await IntegrationHarness.connectionTest(self, backend: backend(bucket: e["MACSH_IT_S3_BUCKET"]!), draft: good)
+        XCTAssertTrue(ok.ok, ok.message)
+
+        let badSecret = SessionManager.DraftSecrets(s3: S3Secrets(accessKeyID: e["MACSH_IT_S3_ACCESS"]!, secretAccessKey: "wrong"))
+        let bad = try await IntegrationHarness.connectionTest(self, backend: backend(bucket: e["MACSH_IT_S3_BUCKET"]!), draft: badSecret)
+        XCTAssertFalse(bad.ok)
+        XCTAssertTrue(bad.message.hasPrefix("Authentication failed"), bad.message)
+
+        let missing = try await IntegrationHarness.connectionTest(self, backend: backend(bucket: "no-such-bucket"), draft: good)
+        XCTAssertFalse(missing.ok)
+        XCTAssertTrue(missing.message.hasPrefix("Folder or bucket not found"), missing.message)
+    }
 }

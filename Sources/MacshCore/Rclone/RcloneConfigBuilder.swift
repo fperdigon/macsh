@@ -46,12 +46,22 @@ public struct BackendSecrets {
     }
 }
 
-public enum RcloneConfigError: Error, Equatable {
+public enum RcloneConfigError: Error, Equatable, LocalizedError {
     case keyFileAuthRequiresPath
     case passwordAuthRequiresPassword
     case missingS3Credentials
     case missingFTPPassword
     case missingSecret(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .keyFileAuthRequiresPath: return "No key file is saved for this remote."
+        case .passwordAuthRequiresPassword: return "No password is saved for this remote."
+        case .missingS3Credentials: return "The access key ID or secret access key is missing."
+        case .missingFTPPassword: return "No password is saved for this remote."
+        case .missingSecret(let name): return "The saved value for \"\(name)\" is missing (sign in or enter it again)."
+        }
+    }
 }
 
 public enum RcloneConfigBuilder {

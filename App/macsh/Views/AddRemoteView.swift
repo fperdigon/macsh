@@ -35,6 +35,10 @@ struct AddRemoteView: View {
     @State private var error: String?
     @State private var customizeTuning: Bool
     @State private var tuning: TransferTuning
+    @State private var readOnly: Bool
+    @State private var bandwidth: String
+    @State private var testing = false
+    @State private var testResult: ConnectionTestResult?
 
     init(manager: SessionManager, prefs: UserPreferences, editing: Remote? = nil) {
         self.manager = manager
@@ -77,6 +81,8 @@ struct AddRemoteView: View {
         let proto = editing?.mountProtocol ?? prefs.defaultProtocol
         _customizeTuning = State(initialValue: editing?.tuning != nil)
         _tuning = State(initialValue: editing?.tuning ?? .defaults(for: proto))
+        _readOnly = State(initialValue: editing?.readOnly ?? false)
+        _bandwidth = State(initialValue: editing?.bandwidthLimit ?? "")
         _sftp = State(initialValue: sftpDraft)
         _s3 = State(initialValue: s3Draft)
         _ftp = State(initialValue: ftpDraft)
@@ -104,6 +110,7 @@ struct AddRemoteView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     form
                     TuningSection(customize: $customizeTuning, tuning: $tuning, mountProtocol: currentProtocol)
+                    MountOptionsSection(readOnly: $readOnly, bandwidth: $bandwidth)
                 }
                 .padding(20)
             }
@@ -143,13 +150,23 @@ struct AddRemoteView: View {
 
     private var footer: some View {
         HStack {
-            if let error {
+            if testing {
+                ProgressView().controlSize(.small)
+                Text("Testing…").font(.callout).foregroundStyle(.secondary)
+            } else if let testResult {
+                Label(testResult.message, systemImage: testResult.ok ? "checkmark.circle.fill" : "xmark.octagon.fill")
+                    .font(.callout)
+                    .foregroundStyle(testResult.ok ? .green : .red)
+                    .lineLimit(3)
+            } else if let error {
                 Text(error)
                     .font(.callout)
                     .foregroundStyle(.red)
                     .lineLimit(2)
             }
             Spacer()
+            Button("Test connection") { testConnection() }
+                .disabled(testing)
             Button("Cancel") { dismiss() }
                 .keyboardShortcut(.cancelAction)
             Button(isEditing ? "Save changes" : "Save") { save() }
@@ -160,41 +177,70 @@ struct AddRemoteView: View {
         .padding(.vertical, 12)
     }
 
+    /// The form's current values as a remote plus its (unsaved) secrets, or nil after
+    /// showing the first validation problem.
+    private func currentRemote() -> (Remote, SessionManager.DraftSecrets)? {
+        if customizeTuning, let v = tuning.validate() { error = v; return nil }
+        if let v = MountOptions.validateBandwidth(bandwidth) { error = v; return nil }
+        var remote: Remote
+        var draft = SessionManager.DraftSecrets()
+        switch kind {
+        case .sftp:
+            if let v = sftp.validate() { error = v; return nil }
+            let (r, secrets) = sftp.toRemoteAndSecrets()
+            remote = r; draft.sftp = secrets
+        case .s3:
+            if let v = s3.validate() { error = v; return nil }
+            let (r, secrets) = s3.toRemoteAndSecrets()
+            remote = r; draft.s3 = secrets
+        case .ftp:
+            if let v = ftp.validate() { error = v; return nil }
+            let (r, secrets) = ftp.toRemoteAndSecrets()
+            remote = r; draft.ftp = secrets
+        case .webdav:
+            if let v = webdav.validate() { error = v; return nil }
+            let (r, secrets) = webdav.toRemoteAndSecrets()
+            remote = r; draft.options = secrets
+        case .gdrive:
+            if let v = gdrive.validate() { error = v; return nil }
+            let (r, secrets) = gdrive.toRemoteAndSecrets()
+            remote = r; draft.options = secrets
+        }
+        remote.tuning = customizeTuning ? tuning : nil
+        remote.readOnly = readOnly
+        let bw = bandwidth.trimmingCharacters(in: .whitespaces)
+        remote.bandwidthLimit = bw.isEmpty ? nil : bw
+        error = nil
+        return (remote, draft)
+    }
+
+    private func testConnection() {
+        testResult = nil
+        guard let (remote, draft) = currentRemote() else { return }
+        testing = true
+        Task { @MainActor in
+            testResult = await manager.testConnection(remote, draft: draft)
+            testing = false
+        }
+    }
+
     private func save() {
-        if customizeTuning, let v = tuning.validate() { error = v; return }
-        let chosenTuning: TransferTuning? = customizeTuning ? tuning : nil
+        testResult = nil
+        guard let (remote, draft) = currentRemote() else { return }
         do {
             switch kind {
             case .sftp:
-                if let v = sftp.validate() { error = v; return }
-                var (remote, secrets) = sftp.toRemoteAndSecrets()
-                remote.tuning = chosenTuning
-                if isEditing { try manager.update(remote, sftpSecrets: secrets) }
-                else { try manager.add(remote, sftpSecrets: secrets) }
+                if isEditing { try manager.update(remote, sftpSecrets: draft.sftp) }
+                else { try manager.add(remote, sftpSecrets: draft.sftp) }
             case .s3:
-                if let v = s3.validate() { error = v; return }
-                var (remote, secrets) = s3.toRemoteAndSecrets()
-                remote.tuning = chosenTuning
-                if isEditing { try manager.update(remote, s3Secrets: secrets) }
-                else { try manager.add(remote, s3Secrets: secrets) }
+                if isEditing { try manager.update(remote, s3Secrets: draft.s3) }
+                else { try manager.add(remote, s3Secrets: draft.s3) }
             case .ftp:
-                if let v = ftp.validate() { error = v; return }
-                var (remote, secrets) = ftp.toRemoteAndSecrets()
-                remote.tuning = chosenTuning
-                if isEditing { try manager.update(remote, ftpSecrets: secrets) }
-                else { try manager.add(remote, ftpSecrets: secrets) }
-            case .webdav:
-                if let v = webdav.validate() { error = v; return }
-                var (remote, secrets) = webdav.toRemoteAndSecrets()
-                remote.tuning = chosenTuning
-                if isEditing { try manager.update(remote, optionSecrets: secrets) }
-                else { try manager.add(remote, optionSecrets: secrets) }
-            case .gdrive:
-                if let v = gdrive.validate() { error = v; return }
-                var (remote, secrets) = gdrive.toRemoteAndSecrets()
-                remote.tuning = chosenTuning
-                if isEditing { try manager.update(remote, optionSecrets: secrets) }
-                else { try manager.add(remote, optionSecrets: secrets) }
+                if isEditing { try manager.update(remote, ftpSecrets: draft.ftp) }
+                else { try manager.add(remote, ftpSecrets: draft.ftp) }
+            case .webdav, .gdrive:
+                if isEditing { try manager.update(remote, optionSecrets: draft.options) }
+                else { try manager.add(remote, optionSecrets: draft.options) }
             }
             dismiss()
         } catch {

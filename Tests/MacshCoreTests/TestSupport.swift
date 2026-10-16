@@ -12,7 +12,7 @@ struct FakeRclone {
         let argsFile = dir.appendingPathComponent("fake-rclone-args.txt")
         let script = """
         #!/usr/bin/env python3
-        import os, socket, sys
+        import os, socket, sys, time
         args = sys.argv[1:]
         if args and args[0] == "obscure":
             print("OBS-" + args[1])
@@ -45,6 +45,19 @@ struct FakeRclone {
                 lines.append("ENV:%s=%s" % (k, os.environ[k]))
         with open("\(argsFile.path)", "w") as f:
             f.write("\\n".join(lines))
+        if args and args[0] == "lsf":
+            mode_file = os.path.join(here, "lsf-mode.txt")
+            if os.path.exists(mode_file):
+                parts = open(mode_file).read().split("\\n", 1)
+                code = int(parts[0])
+                if code == 124:
+                    time.sleep(60)
+                if code != 0:
+                    sys.stderr.write(parts[1] if len(parts) > 1 else "")
+                    sys.exit(code)
+            print("a.txt")
+            print("sub/")
+            sys.exit(0)
         if "--addr" in args:
             host, port = args[args.index("--addr") + 1].rsplit(":", 1)
             s = socket.socket()

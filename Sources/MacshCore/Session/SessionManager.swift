@@ -200,38 +200,57 @@ public final class SessionManager: ObservableObject {
         (try? keychain.get(remoteID: remoteID, kind: .privateKey)) ?? nil
     }
 
-    /// Mounts a remote. Everything that blocks (rclone start-up, host-key scan, NetFS,
-    /// mount_nfs) runs off the main thread; only state changes and dialogs use it.
-    public func mount(remoteID: UUID) async throws {
-        guard let session = sessions.first(where: { $0.id == remoteID }) else { return }
-        switch session.status {
-        case .starting, .stopping: return    // an operation is already in flight
-        default: break
-        }
-        session.transition(to: .starting)
-        let mounter = self.mounter
-        let rcloneBinary = self.rcloneBinary
+    /// Secrets typed in the Add/Edit form, not yet saved. Blank values fall back to what the
+    /// Keychain already holds (editing "leave blank to keep").
+    public struct DraftSecrets {
+        public var sftp: SFTPSecrets?
+        public var s3: S3Secrets?
+        public var ftp: FTPSecrets?
+        public var options: [String: String]
 
-        let remote = session.remote
-        let logFile = logsDir.appendingPathComponent("\(remote.id.uuidString).log")
+        public init(sftp: SFTPSecrets? = nil, s3: S3Secrets? = nil, ftp: FTPSecrets? = nil, options: [String: String] = [:]) {
+            self.sftp = sftp
+            self.s3 = s3
+            self.ftp = ftp
+            self.options = options
+        }
+    }
+
+    struct PreparedRclone {
+        let configText: String
+        let envOverrides: [String: String]
+        let remotePath: String
+        /// Decrypted generated key on disk; the caller removes it when done.
+        let ephemeralKeyURL: URL?
+    }
+
+    /// Turns a remote and its secrets (from `draft` first, then the Keychain) into rclone
+    /// config text, environment overrides and the path to serve. Shared by mount and
+    /// "Test connection" so both exercise exactly the same inputs.
+    private func prepareRclone(for remote: Remote, draft: DraftSecrets?) async throws -> PreparedRclone {
+        let rcloneBinary = self.rcloneBinary
         var ephemeralKeyURL: URL? = nil
-        var spawnedProcess: Process? = nil
-        var spawnedConfig: URL? = nil
         var envOverrides: [String: String] = [:]
         var bundle = BackendSecrets()
-        var remotePath: String
+        let remotePath: String
+
+        func stored(_ kind: SecretKind, draft value: String? = nil) throws -> String? {
+            if let value, !value.isEmpty { return value }
+            return try keychain.get(remoteID: remote.id, kind: kind)
+        }
 
         do {
             switch remote.backend {
             case .sftp(let sftp):
-                let password = try keychain.get(remoteID: remote.id, kind: .password)
+                let d = draft?.sftp
+                let password = try stored(.password, draft: d?.password)
                 var resolvedKeyPath: String? = nil
                 switch sftp.authKind {
                 case .password: break
                 case .keyFile:
-                    resolvedKeyPath = try keychain.get(remoteID: remote.id, kind: .privateKey)
+                    resolvedKeyPath = try stored(.privateKey, draft: d?.privateKeyPath)
                 case .generatedKey:
-                    if let pem = try keychain.get(remoteID: remote.id, kind: .privateKey) {
+                    if let pem = try stored(.privateKey, draft: d?.privateKeyPath) {
                         let url = FileManager.default.temporaryDirectory
                             .appendingPathComponent("macsh-key-\(remote.id.uuidString)")
                         try pem.write(to: url, atomically: true, encoding: .utf8)
@@ -243,7 +262,7 @@ public final class SessionManager: ObservableObject {
                 bundle.sftp = SFTPSecrets(
                     password: password,
                     privateKeyPath: resolvedKeyPath,
-                    keyPassphrase: try keychain.get(remoteID: remote.id, kind: .keyPassphrase)
+                    keyPassphrase: try stored(.keyPassphrase, draft: d?.keyPassphrase)
                 )
                 if sftp.authKind == .keyFile, let pp = bundle.sftp?.keyPassphrase, !pp.isEmpty {
                     // Without this, passphrase-protected keys fail with
@@ -263,8 +282,8 @@ public final class SessionManager: ObservableObject {
                 remotePath = sftp.remotePath
 
             case .s3(let s3):
-                guard let access = try keychain.get(remoteID: remote.id, kind: .s3AccessKeyID),
-                      let secret = try keychain.get(remoteID: remote.id, kind: .s3SecretAccessKey) else {
+                guard let access = try stored(.s3AccessKeyID, draft: draft?.s3?.accessKeyID),
+                      let secret = try stored(.s3SecretAccessKey, draft: draft?.s3?.secretAccessKey) else {
                     throw RcloneConfigError.missingS3Credentials
                 }
                 bundle.s3 = S3Secrets(accessKeyID: access, secretAccessKey: secret)
@@ -272,7 +291,7 @@ public final class SessionManager: ObservableObject {
                 remotePath = s3.prefix.isEmpty ? s3.bucket : "\(s3.bucket)/\(s3.prefix)"
 
             case .ftp(let ftp):
-                guard let password = try keychain.get(remoteID: remote.id, kind: .password) else {
+                guard let password = try stored(.password, draft: draft?.ftp?.password) else {
                     throw RcloneConfigError.missingFTPPassword
                 }
                 bundle.ftp = FTPSecrets(password: password)
@@ -282,7 +301,7 @@ public final class SessionManager: ObservableObject {
 
             case .rclone(let cfg):
                 for opt in cfg.secretOptions {
-                    guard let value = try keychain.get(remoteID: remote.id, kind: .option(opt.name)), !value.isEmpty else {
+                    guard let value = try stored(.option(opt.name), draft: draft?.options[opt.name]), !value.isEmpty else {
                         if opt.required { throw RcloneConfigError.missingSecret(opt.name) }
                         continue
                     }
@@ -301,8 +320,58 @@ public final class SessionManager: ObservableObject {
                 secrets: bundle,
                 knownHostsPath: hostKeyVerifier?.knownHostsPath
             )
+            return PreparedRclone(configText: configText, envOverrides: envOverrides,
+                                  remotePath: remotePath, ephemeralKeyURL: ephemeralKeyURL)
+        } catch {
+            if let url = ephemeralKeyURL { try? FileManager.default.removeItem(at: url) }
+            throw error
+        }
+    }
+
+    /// "Test connection": lists the remote with the form's (unsaved) values and reports a
+    /// readable result. Nothing is stored or mounted.
+    public func testConnection(_ remote: Remote, draft: DraftSecrets = DraftSecrets()) async -> ConnectionTestResult {
+        let binary = rcloneBinary
+        do {
+            let prepared = try await prepareRclone(for: remote, draft: draft)
+            defer { if let url = prepared.ephemeralKeyURL { try? FileManager.default.removeItem(at: url) } }
+            return try await Self.offMain {
+                ConnectionTester.run(binary: binary, configText: prepared.configText,
+                                     remotePath: prepared.remotePath, env: prepared.envOverrides)
+            }
+        } catch {
+            let reason = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            return .failure(reason)
+        }
+    }
+
+    /// Mounts a remote. Everything that blocks (rclone start-up, host-key scan, NetFS,
+    /// mount_nfs) runs off the main thread; only state changes and dialogs use it.
+    public func mount(remoteID: UUID) async throws {
+        guard let session = sessions.first(where: { $0.id == remoteID }) else { return }
+        switch session.status {
+        case .starting, .stopping: return    // an operation is already in flight
+        default: break
+        }
+        session.transition(to: .starting)
+        let mounter = self.mounter
+        let rcloneBinary = self.rcloneBinary
+
+        let remote = session.remote
+        let logFile = logsDir.appendingPathComponent("\(remote.id.uuidString).log")
+        var ephemeralKeyURL: URL? = nil
+        var spawnedProcess: Process? = nil
+        var spawnedConfig: URL? = nil
+
+        do {
+            let prepared = try await prepareRclone(for: remote, draft: nil)
+            ephemeralKeyURL = prepared.ephemeralKeyURL
+            let configText = prepared.configText
+            let envOverrides = prepared.envOverrides
+            let remotePath = prepared.remotePath
             let logURL = logsDir.appendingPathComponent("\(remote.id.uuidString).log")
             let tuning = remote.tuning ?? .defaults(for: remote.mountProtocol)
+            let extraArgs = MountOptions.serveArgs(readOnly: remote.readOnly, bandwidthLimit: remote.bandwidthLimit)
             let runner = RcloneProcess(binary: rcloneBinary, logFile: logURL)
             let volname = mounter.volumeName(from: remote.name)
             let spawned: RcloneProcess.Spawned
@@ -315,7 +384,8 @@ public final class SessionManager: ObservableObject {
                     baseurl: "/\(volname)",
                     liveUpdates: remote.liveUpdates,
                     tuning: tuning,
-                    envOverrides: envOverrides
+                    envOverrides: envOverrides,
+                    extraArgs: extraArgs
                 )
             case .nfs:
                 spawned = try runner.spawnNFSServe(
@@ -324,7 +394,8 @@ public final class SessionManager: ObservableObject {
                     configText: configText,
                     liveUpdates: remote.liveUpdates,
                     tuning: tuning,
-                    envOverrides: envOverrides
+                    envOverrides: envOverrides,
+                    extraArgs: extraArgs
                 )
             }
             spawnedProcess = spawned.process

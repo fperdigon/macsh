@@ -11,7 +11,6 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **WebDAV / Nextcloud / ownCloud backend.** Mount any WebDAV server; the
   password (use an app password for Nextcloud) is kept in the Keychain and
   passed to rclone through the environment, never written to the config.
-
 - **Google Drive backend.** Sign in through the browser (`rclone authorize drive`);
   choose full, read-only or per-file access, a shared drive or root folder, and
   optionally your own OAuth client ID/secret. Google Docs/Sheets/Slides appear as
@@ -19,6 +18,11 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **OAuth sign-in framework.** The token is stored in the Keychain, handed to rclone
   through the environment, and any token rclone refreshes while mounted is written
   back to the Keychain when the mount ends.
+
+- **Test connection.** A button in the Add/Edit window checks the form's values against
+  the server (without saving or mounting) and explains failures: wrong password, host
+  unreachable, folder or bucket not found, untrusted certificate.
+- **Read-only mounts** and an optional **bandwidth limit** per remote (any backend).
 
 ### Changed
 
