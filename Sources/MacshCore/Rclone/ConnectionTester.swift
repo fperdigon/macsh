@@ -94,7 +94,7 @@ public enum ConnectionTester {
 
         if has("unable to authenticate", "permission denied (", "login incorrect", "authentication failed",
                "invalidaccesskeyid", "signaturedoesnotmatch", "accessdenied", "access denied", "unauthorized",
-               "invalid_grant", "invalid credentials", "bad credentials", "logon_failure", "logon failure") {
+               "invalid_grant", "invalid credentials", "bad credentials", "logon_failure", "logon failure", "attempted logon is invalid", "bad username or authentication") {
             return "Authentication failed — check the user, password, key or token."
         }
         if has("certificate", "x509") {

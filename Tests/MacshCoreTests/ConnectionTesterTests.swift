@@ -13,6 +13,8 @@ final class ConnectionTesterExplainTests: XCTestCase {
             "error listing: 401 Unauthorized",
             "oauth2: cannot fetch token: invalid_grant",
             "smb: failed to connect: NT Status Error: STATUS_LOGON_FAILURE",
+            // Verbatim from rclone against Samba (CI) after a wrong password:
+            "ERROR : error listing: couldn't connect SMB: response error: The attempted logon is invalid. This is either due to a bad username or authentication information.",
         ]
         for s in samples {
             XCTAssertTrue(explain(s).hasPrefix("Authentication failed"), s)
