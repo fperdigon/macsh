@@ -31,12 +31,10 @@ final class MounterTests: XCTestCase {
         XCTAssertFalse(Mounter().reconcileStaleMount(volumeName: "macsh-test-\(UUID().uuidString)"))
     }
 
-    func testUnmountOfNonexistentMountpointThrows() {
-        XCTAssertThrowsError(try Mounter().unmount(mountpoint: "/nonexistent/macsh-\(UUID().uuidString)")) { error in
-            guard case Mounter.MountError.unmountFailed = error else {
-                return XCTFail("expected unmountFailed, got \(error)")
-            }
-        }
+    func testUnmountOfNonMountedPathIsSuccess() {
+        let path = "/nonexistent/macsh-\(UUID().uuidString)"
+        XCTAssertFalse(Mounter().isMounted(mountpoint: path))
+        XCTAssertNoThrow(try Mounter().unmount(mountpoint: path))
     }
 
     func testMountNFSToBogusMountpointThrows() {
@@ -46,20 +44,6 @@ final class MounterTests: XCTestCase {
         ) { error in
             guard case Mounter.MountError.mountFailed = error else {
                 return XCTFail("expected mountFailed, got \(error)")
-            }
-        }
-    }
-
-    func testResolveMountpointEitherCreatesOrReportsFailure() {
-        let name = "macsh-test-\(UUID().uuidString)"
-        do {
-            let path = try Mounter().resolveMountpoint(name: name)
-            defer { try? FileManager.default.removeItem(atPath: path) }
-            XCTAssertEqual(path, "/Volumes/\(name)")
-        } catch {
-            // /Volumes is usually not writable without privileges.
-            guard case Mounter.MountError.mountpointCreationFailed = error else {
-                return XCTFail("unexpected error \(error)")
             }
         }
     }

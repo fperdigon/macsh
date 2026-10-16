@@ -3,30 +3,40 @@ import Combine
 @testable import MacshCore
 
 private final class FakeMounter: Mounter {
-    var failMount = false
-    private(set) var webdavMounts: [(port: Int, baseurl: String)] = []
-    private(set) var nfsMounts: [(port: Int, mountpoint: String)] = []
-    private(set) var unmounted: [String] = []
-    private(set) var reconciled: [String] = []
+    private let lock = NSLock()
+    private var _failMount = false
+    private var _webdavMounts: [(port: Int, baseurl: String)] = []
+    private var _nfsMounts: [(port: Int, mountpoint: String)] = []
+    private var _unmounted: [String] = []
+    private var _reconciled: [String] = []
+
+    var failMount: Bool {
+        get { lock.withLock { _failMount } }
+        set { lock.withLock { _failMount = newValue } }
+    }
+    var webdavMounts: [(port: Int, baseurl: String)] { lock.withLock { _webdavMounts } }
+    var nfsMounts: [(port: Int, mountpoint: String)] { lock.withLock { _nfsMounts } }
+    var unmounted: [String] { lock.withLock { _unmounted } }
+    var reconciled: [String] { lock.withLock { _reconciled } }
 
     override func mountWebDAV(host: String, port: Int, baseurl: String, user: String, password: String) throws -> String {
         if failMount { throw Mounter.MountError.netFSFailed(status: 1) }
-        webdavMounts.append((port, baseurl))
+        lock.withLock { _webdavMounts.append((port, baseurl)) }
         return "/Volumes/fake\(baseurl)"
     }
 
     override func mountNFS(host: String, port: Int, exportPath: String, name: String, mountpoint: String) throws {
         if failMount { throw Mounter.MountError.mountFailed(stderr: "x", exitCode: 1) }
-        nfsMounts.append((port, mountpoint))
+        lock.withLock { _nfsMounts.append((port, mountpoint)) }
     }
 
     override func resolveMountpoint(name: String) throws -> String { "/Volumes/\(name)" }
 
-    override func unmount(mountpoint: String) throws { unmounted.append(mountpoint) }
+    override func unmount(mountpoint: String) throws { lock.withLock { _unmounted.append(mountpoint) } }
 
     @discardableResult
     override func reconcileStaleMount(volumeName: String) -> Bool {
-        reconciled.append(volumeName)
+        lock.withLock { _reconciled.append(volumeName) }
         return false
     }
 }
@@ -59,6 +69,11 @@ final class SessionManagerTests: XCTestCase {
             try? FileManager.default.removeItem(at: dir)
         }
         return Fixture(manager: manager, mounter: mounter, keychain: keychain, store: store, rclone: rclone, dir: dir)
+    }
+
+    /// Runs an async throwing block and returns the error it threw, if any.
+    private func thrownError(_ block: () async throws -> Void) async -> Error? {
+        do { try await block(); return nil } catch { return error }
     }
 
     private let pw = SFTPSecrets(password: "pw", privateKeyPath: nil, keyPassphrase: nil)
@@ -179,20 +194,22 @@ final class SessionManagerTests: XCTestCase {
         XCTAssertEqual(f.manager.logURL(for: id).lastPathComponent, "\(id.uuidString).log")
     }
 
-    func testUnknownIDsAreNoOps() throws {
+    func testUnknownIDsAreNoOps() async throws {
         let f = try makeFixture()
-        XCTAssertNoThrow(try f.manager.mount(remoteID: UUID()))
-        XCTAssertNoThrow(try f.manager.unmount(remoteID: UUID()))
+        let m = await thrownError { try await f.manager.mount(remoteID: UUID()) }
+        let u = await thrownError { try await f.manager.unmount(remoteID: UUID()) }
+        XCTAssertNil(m)
+        XCTAssertNil(u)
     }
 
     // MARK: - Mount flows
 
-    func testMountSFTPPasswordWebDAVThenUnmount() throws {
+    func testMountSFTPPasswordWebDAVThenUnmount() async throws {
         let f = try makeFixture()
         let r = makeRemote(name: "my server", backend: sftpBackend())
         try f.manager.add(r, sftpSecrets: pw)
 
-        try f.manager.mount(remoteID: r.id)
+        try await f.manager.mount(remoteID: r.id)
 
         let session = try XCTUnwrap(f.manager.sessions.first)
         XCTAssertEqual(session.status, .mounted(at: "/Volumes/fake/my server"))
@@ -202,7 +219,7 @@ final class SessionManagerTests: XCTestCase {
         XCTAssertTrue(lines.contains("ENV:RCLONE_CONFIG_R_PASS=OBS-pw"), "password must be passed obscured via env")
         let proc = try XCTUnwrap(session.rcloneProcess)
 
-        try f.manager.unmount(remoteID: r.id)
+        try await f.manager.unmount(remoteID: r.id)
         XCTAssertEqual(session.status, .idle)
         XCTAssertNil(session.mountpoint)
         XCTAssertNil(session.rcloneProcess)
@@ -211,103 +228,102 @@ final class SessionManagerTests: XCTestCase {
         XCTAssertFalse(proc.isRunning)
     }
 
-    func testMountS3PassesSecretViaEnvAndBuildsRemotePath() throws {
+    func testMountS3PassesSecretViaEnvAndBuildsRemotePath() async throws {
         let f = try makeFixture()
         let r = makeRemote(backend: s3Backend(prefix: "dir"))
         try f.manager.add(r, s3Secrets: S3Secrets(accessKeyID: "AK", secretAccessKey: "SK"))
 
-        try f.manager.mount(remoteID: r.id)
+        try await f.manager.mount(remoteID: r.id)
 
         let lines = f.rclone.recordedLines()
         XCTAssertEqual(lines[2], "r:bkt/dir")
         XCTAssertTrue(lines.contains("ENV:RCLONE_CONFIG_R_SECRET_ACCESS_KEY=SK"))
-        try f.manager.unmount(remoteID: r.id)
+        try await f.manager.unmount(remoteID: r.id)
     }
 
-    func testMountS3WithoutPrefixUsesBucketOnly() throws {
+    func testMountS3WithoutPrefixUsesBucketOnly() async throws {
         let f = try makeFixture()
         let r = makeRemote(backend: s3Backend(prefix: ""))
         try f.manager.add(r, s3Secrets: S3Secrets(accessKeyID: "AK", secretAccessKey: "SK"))
-        try f.manager.mount(remoteID: r.id)
+        try await f.manager.mount(remoteID: r.id)
         XCTAssertEqual(f.rclone.recordedLines()[2], "r:bkt")
-        try f.manager.unmount(remoteID: r.id)
+        try await f.manager.unmount(remoteID: r.id)
     }
 
-    func testMountS3MissingCredentialsFails() throws {
+    func testMountS3MissingCredentialsFails() async throws {
         let f = try makeFixture()
         let r = makeRemote(backend: s3Backend())
         try f.manager.add(r)
 
-        XCTAssertThrowsError(try f.manager.mount(remoteID: r.id)) { error in
-            XCTAssertEqual(error as? RcloneConfigError, .missingS3Credentials)
-        }
+        let error = await thrownError { try await f.manager.mount(remoteID: r.id) }
+        XCTAssertEqual(error as? RcloneConfigError, .missingS3Credentials)
         guard case .failed = f.manager.sessions[0].status else {
             return XCTFail("expected failed status, got \(f.manager.sessions[0].status)")
         }
     }
 
-    func testMountFTPMissingPasswordFails() throws {
+    func testMountFTPMissingPasswordFails() async throws {
         let f = try makeFixture()
         let r = makeRemote(backend: ftpBackend())
         try f.manager.add(r)
-        XCTAssertThrowsError(try f.manager.mount(remoteID: r.id)) { error in
-            XCTAssertEqual(error as? RcloneConfigError, .missingFTPPassword)
-        }
+        let error = await thrownError { try await f.manager.mount(remoteID: r.id) }
+        XCTAssertEqual(error as? RcloneConfigError, .missingFTPPassword)
     }
 
-    func testMountFTPObscuresPassword() throws {
+    func testMountFTPObscuresPassword() async throws {
         let f = try makeFixture()
         let r = makeRemote(backend: ftpBackend())
         try f.manager.add(r, ftpSecrets: FTPSecrets(password: "ftppw"))
-        try f.manager.mount(remoteID: r.id)
+        try await f.manager.mount(remoteID: r.id)
         XCTAssertTrue(f.rclone.recordedLines().contains("ENV:RCLONE_CONFIG_R_PASS=OBS-ftppw"))
-        try f.manager.unmount(remoteID: r.id)
+        try await f.manager.unmount(remoteID: r.id)
     }
 
-    func testMountNFSUsesResolvedMountpoint() throws {
+    func testMountNFSUsesResolvedMountpoint() async throws {
         let f = try makeFixture()
         let r = makeRemote(name: "nfsbox", backend: sftpBackend(), proto: .nfs)
         try f.manager.add(r, sftpSecrets: pw)
 
-        try f.manager.mount(remoteID: r.id)
+        try await f.manager.mount(remoteID: r.id)
 
         XCTAssertEqual(f.manager.sessions[0].status, .mounted(at: "/Volumes/nfsbox"))
         XCTAssertEqual(f.mounter.nfsMounts.first?.mountpoint, "/Volumes/nfsbox")
         XCTAssertEqual(f.rclone.recordedLines()[1], "nfs")
-        try f.manager.unmount(remoteID: r.id)
+        try await f.manager.unmount(remoteID: r.id)
     }
 
-    func testMountKeyFileAuthUsesStoredPath() throws {
+    func testMountKeyFileAuthUsesStoredPath() async throws {
         let f = try makeFixture()
         let r = makeRemote(backend: sftpBackend(auth: .keyFile))
         try f.manager.add(r, sftpSecrets: SFTPSecrets(password: nil, privateKeyPath: "/keys/id", keyPassphrase: nil))
-        try f.manager.mount(remoteID: r.id)
+        try await f.manager.mount(remoteID: r.id)
         XCTAssertEqual(f.manager.sessions[0].status, .mounted(at: "/Volumes/fake/test-remote"))
-        try f.manager.unmount(remoteID: r.id)
+        try await f.manager.unmount(remoteID: r.id)
     }
 
-    func testGeneratedKeyIsWrittenWith0600AndRemovedOnUnmount() throws {
+    func testGeneratedKeyIsWrittenWith0600AndRemovedOnUnmount() async throws {
         let f = try makeFixture()
         let r = makeRemote(backend: sftpBackend(auth: .generatedKey))
         try f.manager.add(r, sftpSecrets: SFTPSecrets(password: nil, privateKeyPath: "PEM-DATA", keyPassphrase: nil))
 
-        try f.manager.mount(remoteID: r.id)
+        try await f.manager.mount(remoteID: r.id)
         let keyURL = try XCTUnwrap(f.manager.sessions[0].ephemeralKeyURL)
         XCTAssertEqual(try String(contentsOf: keyURL, encoding: .utf8), "PEM-DATA")
         let perms = try FileManager.default.attributesOfItem(atPath: keyURL.path)[.posixPermissions] as? Int
         XCTAssertEqual(perms, 0o600)
 
-        try f.manager.unmount(remoteID: r.id)
+        try await f.manager.unmount(remoteID: r.id)
         XCTAssertFalse(FileManager.default.fileExists(atPath: keyURL.path))
     }
 
-    func testMountFailureMarksFailedAndCleansEphemeralKey() throws {
+    func testMountFailureMarksFailedAndCleansEphemeralKey() async throws {
         let f = try makeFixture()
         f.mounter.failMount = true
         let r = makeRemote(backend: sftpBackend(auth: .generatedKey))
         try f.manager.add(r, sftpSecrets: SFTPSecrets(password: nil, privateKeyPath: "PEM", keyPassphrase: nil))
 
-        XCTAssertThrowsError(try f.manager.mount(remoteID: r.id))
+        let error = await thrownError { try await f.manager.mount(remoteID: r.id) }
+        XCTAssertNotNil(error)
         guard case .failed = f.manager.sessions[0].status else {
             return XCTFail("expected failed status")
         }
@@ -315,11 +331,11 @@ final class SessionManagerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: keyPath))
     }
 
-    func testShutdownAllUnmountsMountedSessions() throws {
+    func testShutdownAllUnmountsMountedSessions() async throws {
         let f = try makeFixture()
         let r = makeRemote(backend: s3Backend())
         try f.manager.add(r, s3Secrets: S3Secrets(accessKeyID: "AK", secretAccessKey: "SK"))
-        try f.manager.mount(remoteID: r.id)
+        try await f.manager.mount(remoteID: r.id)
 
         f.manager.shutdownAll()
 
@@ -327,11 +343,11 @@ final class SessionManagerTests: XCTestCase {
         XCTAssertEqual(f.mounter.unmounted.count, 1)
     }
 
-    func testDeleteMountedRemoteUnmountsFirst() throws {
+    func testDeleteMountedRemoteUnmountsFirst() async throws {
         let f = try makeFixture()
         let r = makeRemote(backend: s3Backend())
         try f.manager.add(r, s3Secrets: S3Secrets(accessKeyID: "AK", secretAccessKey: "SK"))
-        try f.manager.mount(remoteID: r.id)
+        try await f.manager.mount(remoteID: r.id)
 
         try f.manager.delete(r.id)
 

@@ -4,6 +4,41 @@ All notable changes to macsh are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] — 2026-10-16
+
+### Added
+
+- **Per-remote performance settings.** Cache mode, read-ahead, buffer size,
+  max cache size, directory-cache time and write-back delay can be tuned per
+  remote and are validated before saving.
+- **Faster NFS.** NFS remotes default to a full read cache with read-ahead and
+  a 1s write-back (measured ~2.5 MB/s with `writes` vs ~17 MB/s).
+- **GitHub Actions CI** (build, test, coverage report) and a **release
+  workflow**: a `v*` tag publishes a release with DMGs and a commit list, and
+  every push to `main` refreshes a rolling `nightly` pre-release whose notes
+  keep a running change history.
+- **Test coverage of `MacshCore` raised from ~13% to ~89%** (SessionManager,
+  Mounter, RcloneProcess, HostKeyVerifier, config building and more).
+
+### Changed
+
+- NFS remotes now mount under `~/macsh/<name>` instead of the root-owned
+  `/Volumes`.
+- Mounting and unmounting no longer block the main thread, so the menu bar
+  item stays responsive; a second mount request while one is in flight is
+  ignored. rclone gets up to 30s to start listening and is cleaned up on
+  failure.
+- Editing an SFTP remote shows the saved key file path.
+
+### Fixed
+
+- The SFTP key passphrase is now passed to rclone.
+- Mount errors are readable (with the tail of the rclone log) and key files
+  are validated up front.
+- Unmounting something already unmounted (ejected in Finder, rclone killed) is
+  treated as success instead of an error.
+- The whole Settings tab button is clickable, not just its label.
+
 ## [0.1.1] — 2026-05-04
 
 ### Fixed
