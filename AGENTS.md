@@ -9,7 +9,7 @@ macsh is a macOS (14+, Apple Silicon) menu-bar app that mounts remote storage as
 volumes without macFUSE. It wraps [rclone](https://rclone.org): for each remote it starts
 `rclone serve webdav|nfs` on localhost and mounts that (WebDAV via NetFS, NFS via
 `mount_nfs` under `~/macsh/<name>`). Backends today: SFTP, S3-compatible, FTP/FTPS,
-WebDAV/Nextcloud and Google Drive (the generic `Backend.rclone` model; OAuth sign-in via
+WebDAV/Nextcloud, SMB and Google Drive (the generic `Backend.rclone` model; OAuth sign-in via
 `OAuthAuthorizer`).
 
 ## Layout
@@ -23,7 +23,7 @@ WebDAV/Nextcloud and Google Drive (the generic `Backend.rclone` model; OAuth sig
   (flavors `macsh` with bundled rclone and `macsh-lite`).
 - `Tests/MacshCoreTests/` – unit and integration tests.
 - `scripts/` – release build; `scripts/ci/` – servers used by the integration CI jobs.
-- `.github/workflows/` – `ci.yml` (build, tests, coverage, integration), `release.yml`.
+- `.github/workflows/` – `ci.yml` (build, tests, coverage, integration, app compile), `release.yml`.
 
 ## Build and test
 
@@ -84,7 +84,7 @@ environment without macOS, open a PR and let CI be the judge.
    - Use `IntegrationHarness.roundTrip` and `IntegrationEnv.require` from
      `IntegrationSupport.swift`; tests skip when their variables are unset.
    - Current coverage: SFTP, FTP, S3 (`BackendIntegrationTests`) and Nextcloud/WebDAV
-     (`NextcloudIntegrationTests`), plus Google Drive (`GoogleDriveIntegrationTests`, needs the
+     (`NextcloudIntegrationTests`), SMB (`BackendIntegrationTests`), plus Google Drive (`GoogleDriveIntegrationTests`, needs the
      `MACSH_IT_GDRIVE_TOKEN` repository secret; they skip without it). Known gaps: FTPS/TLS, passphrase-protected keys, real
      cloud providers (OAuth backends such as Google Drive will need a stand-in server or
      a test-account secret; document the choice in the PR).

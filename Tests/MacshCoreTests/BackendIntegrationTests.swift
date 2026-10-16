@@ -249,4 +249,41 @@ final class BackendIntegrationTests: XCTestCase {
             manager: manager, remote: try remote("it-s3"), label: "import-s3",
             serverSide: IntegrationHarness.readLocal("\(e["MACSH_IT_S3_DIR"]!)/\(e["MACSH_IT_S3_BUCKET"]!)"))
     }
+
+    // MARK: SMB
+
+    private func smbBackend(port: String, user: String, share: String) -> Backend {
+        .rclone(BackendDescriptor.smb.makeConfig(
+            values: ["host": "127.0.0.1", "port": port, "user": user], remotePath: share))
+    }
+
+    private func smb(_ proto: MountProtocol) async throws {
+        let e = try IntegrationEnv.require("MACSH_IT_SMB_PORT", "MACSH_IT_SMB_USER", "MACSH_IT_SMB_PASS",
+                                           "MACSH_IT_SMB_SHARE", "MACSH_IT_SMB_DIR")
+        try await IntegrationHarness.roundTrip(
+            self, backend: smbBackend(port: e["MACSH_IT_SMB_PORT"]!, user: e["MACSH_IT_SMB_USER"]!, share: e["MACSH_IT_SMB_SHARE"]!),
+            secrets: .init(options: ["pass": e["MACSH_IT_SMB_PASS"]!]), proto: proto,
+            label: "smb-\(proto.rawValue)", serverSide: IntegrationHarness.readLocal(e["MACSH_IT_SMB_DIR"]!))
+    }
+
+    func testSMBNFS() async throws { try await smb(.nfs) }
+    func testSMBWebDAV() async throws { try await smb(.webdav) }
+
+    func testConnectionSMBGoodBadPasswordUnreachableAndMissingShare() async throws {
+        let e = try IntegrationEnv.require("MACSH_IT_SMB_PORT", "MACSH_IT_SMB_USER", "MACSH_IT_SMB_PASS", "MACSH_IT_SMB_SHARE")
+        let good = smbBackend(port: e["MACSH_IT_SMB_PORT"]!, user: e["MACSH_IT_SMB_USER"]!, share: e["MACSH_IT_SMB_SHARE"]!)
+        let ok = try await IntegrationHarness.connectionTest(self, backend: good, draft: .init(options: ["pass": e["MACSH_IT_SMB_PASS"]!]))
+        XCTAssertTrue(ok.ok, ok.message)
+
+        let bad = try await IntegrationHarness.connectionTest(self, backend: good, draft: .init(options: ["pass": "wrong"]))
+        XCTAssertTrue(bad.message.hasPrefix("Authentication failed"), bad.message)
+
+        let down = smbBackend(port: "1", user: e["MACSH_IT_SMB_USER"]!, share: e["MACSH_IT_SMB_SHARE"]!)
+        let unreachable = try await IntegrationHarness.connectionTest(self, backend: down, draft: .init(options: ["pass": "x"]))
+        XCTAssertTrue(unreachable.message.hasPrefix("Could not reach the server"), unreachable.message)
+
+        let noShare = smbBackend(port: e["MACSH_IT_SMB_PORT"]!, user: e["MACSH_IT_SMB_USER"]!, share: "no-such-share")
+        let missing = try await IntegrationHarness.connectionTest(self, backend: noShare, draft: .init(options: ["pass": e["MACSH_IT_SMB_PASS"]!]))
+        XCTAssertTrue(missing.message.hasPrefix("Folder or bucket not found"), missing.message)
+    }
 }

@@ -97,7 +97,7 @@ jobs:
           tail -n 50 "$RUNNER_TEMP"/nextcloud-it/data/nextcloud.log || true
           mount | grep -i -E "macsh|127.0.0.1" || true
 
-  # SFTP (asyncssh, password + key auth), FTP and S3 servers on localhost, driven through
+  # SFTP (asyncssh, password + key auth), FTP, S3 and SMB servers on localhost, driven through
   # macsh's real pipeline with NFS and WebDAV mounts.
   backends-integration:
     runs-on: macos-14
@@ -115,7 +115,7 @@ jobs:
         if: failure()
         run: |
           tail -n 40 /tmp/macsh-it/sshd.log || true
-          tail -n 40 /tmp/macsh-it/ftp.log /tmp/macsh-it/s3.log || true
+          tail -n 40 /tmp/macsh-it/ftp.log /tmp/macsh-it/s3.log /tmp/macsh-it/smb.log || true
           mount | grep -i -E "macsh|127.0.0.1" || true
 
   # Real Google Drive. Needs a test account: add the repository secret MACSH_IT_GDRIVE_TOKEN
@@ -145,3 +145,25 @@ jobs:
       - name: Google Drive round-trip and token refresh tests
         if: env.MACSH_IT_GDRIVE_TOKEN != ''
         run: swift test --filter GoogleDriveIntegrationTests
+
+  # Compiles the SwiftUI app (macsh-lite shares all sources with macsh). The package tests do
+  # not build App/, so without this a broken view only shows up in the post-merge release run.
+  app-build:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate the Xcode project
+        run: cd App && xcodegen generate
+
+      - name: Build the app (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild -project App/macsh.xcodeproj -scheme macsh-lite -configuration Debug \
+            -derivedDataPath App/build CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO build 2>&1 | tee xcodebuild.log | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
+          grep -q "BUILD SUCCEEDED" xcodebuild.log

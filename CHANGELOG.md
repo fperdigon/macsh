@@ -19,6 +19,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   through the environment, and any token rclone refreshes while mounted is written
   back to the Keychain when the mount ends.
 
+- **SMB / Windows shares (NAS, Samba)** as a backend, with host, port, user, password, optional
+  domain and the share name as the folder; also importable from rclone.conf.
 - **Test connection.** A button in the Add/Edit window checks the form's values against
   the server (without saving or mounting) and explains failures: wrong password, host
   unreachable, folder or bucket not found, untrusted certificate.

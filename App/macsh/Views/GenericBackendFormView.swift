@@ -33,7 +33,8 @@ struct GenericFormDraft {
 
     func validate() -> String? {
         if name.trimmingCharacters(in: .whitespaces).isEmpty { return "Name required" }
-        return descriptor.validate(values: values, isEditing: existingRemoteID != nil)
+        if let v = descriptor.validate(values: values, isEditing: existingRemoteID != nil) { return v }
+        return descriptor.validateRemotePath(remotePath)
     }
 
     func toRemoteAndSecrets() -> (Remote, [String: String]) {
@@ -117,7 +118,7 @@ struct GenericBackendFormView: View {
             .labelsHidden()
         case .oauthToken:
             oauthControl(field)
-        case .text, .url:
+        case .text, .url, .port:
             TextField("", text: binding(field.key), prompt: Text(field.placeholder))
                 .textFieldStyle(.roundedBorder)
         }

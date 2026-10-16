@@ -4,6 +4,7 @@ import Foundation
 public struct BackendField: Equatable {
     public enum Kind: Equatable {
         case text
+        case port           // 1-65535
         case url            // must be http:// or https://
         case secret         // stored in the Keychain, never in the config file
         case oauthToken     // secret obtained by signing in (`rclone authorize`), refreshed by rclone
@@ -64,11 +65,14 @@ public struct BackendDescriptor: Equatable {
     public let defaultRemotePath: String
     /// Set for backends that sign in through the browser instead of a password.
     public let oauth: OAuthSpec?
+    /// True when the backend cannot be mounted without a path (e.g. the SMB share name).
+    public let remotePathRequired: Bool
 
     public init(
         type: String, displayName: String, fields: [BackendField],
         remotePathLabel: String = "Path", remotePathPlaceholder: String = "", defaultRemotePath: String = "",
-        oauth: OAuthSpec? = nil
+        oauth: OAuthSpec? = nil,
+        remotePathRequired: Bool = false
     ) {
         self.type = type
         self.displayName = displayName
@@ -77,6 +81,7 @@ public struct BackendDescriptor: Equatable {
         self.remotePathPlaceholder = remotePathPlaceholder
         self.defaultRemotePath = defaultRemotePath
         self.oauth = oauth
+        self.remotePathRequired = remotePathRequired
     }
 
     /// Initial form values: every field's default.
@@ -101,10 +106,18 @@ public struct BackendDescriptor: Equatable {
                 }
             case .choice(let allowed):
                 if !allowed.contains(v) { return "\(f.label) must be one of: \(allowed.joined(separator: ", "))" }
+            case .port:
+                guard let n = Int(v), (1...65535).contains(n) else { return "\(f.label) must be 1-65535" }
             case .text, .secret, .oauthToken:
                 break
             }
         }
+        return nil
+    }
+
+    /// Message if a required remote path is blank.
+    public func validateRemotePath(_ path: String) -> String? {
+        if remotePathRequired && path.trimmingCharacters(in: .whitespaces).isEmpty { return "\(remotePathLabel) required" }
         return nil
     }
 
@@ -169,7 +182,23 @@ public struct BackendDescriptor: Equatable {
         oauth: OAuthSpec(backend: "drive", scopeKey: "scope", clientIDKey: "client_id", clientSecretKey: "client_secret")
     )
 
-    public static let all: [BackendDescriptor] = [.webdav, .googleDrive]
+    /// SMB / CIFS file shares (NAS, Windows, Samba). The share name is the first path component.
+    public static let smb = BackendDescriptor(
+        type: "smb",
+        displayName: "SMB / Windows share",
+        fields: [
+            BackendField(key: "host", label: "Host", required: true, placeholder: "nas.local"),
+            BackendField(key: "port", label: "Port", kind: .port, defaultValue: "445"),
+            BackendField(key: "user", label: "User", required: true, placeholder: "user"),
+            BackendField(key: "pass", label: "Password", kind: .secret, required: true, obscure: true),
+            BackendField(key: "domain", label: "Domain", placeholder: "optional, default WORKGROUP"),
+        ],
+        remotePathLabel: "Share",
+        remotePathPlaceholder: "share or share/folder",
+        remotePathRequired: true
+    )
+
+    public static let all: [BackendDescriptor] = [.webdav, .googleDrive, .smb]
 
     public static func descriptor(forType type: String) -> BackendDescriptor? {
         all.first { $0.type == type }

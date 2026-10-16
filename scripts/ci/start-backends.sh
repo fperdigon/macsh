@@ -4,6 +4,7 @@
 #   SFTP: asyncssh server on port 2222, password + key auth
 #   FTP : pyftpdlib (pip, in a venv)
 #   S3  : `rclone serve s3` (S3 protocol server backed by a directory)
+#   SMB : impacket SMB2 server on port 4450
 set -euo pipefail
 
 D=/tmp/macsh-it
@@ -23,7 +24,7 @@ ssh-keygen -q -t ed25519 -N "" -f "$D/id_ed25519"
 cp "$D/id_ed25519.pub" "$D/authorized_keys"
 ssh-keygen -q -t ed25519 -N "" -f "$D/host_key"
 python3 -m venv "$D/venv"
-"$D/venv/bin/pip" install --quiet asyncssh pyftpdlib
+"$D/venv/bin/pip" install --quiet asyncssh pyftpdlib impacket
 nohup "$D/venv/bin/python" "$(dirname "$0")/sftp_server.py" 2222 "$SFTP_USER" "$PASS" \
   "$D/host_key" "$D/authorized_keys" > "$D/sshd.log" 2>&1 &
 for _ in $(seq 1 20); do nc -z 127.0.0.1 2222 && break; sleep 0.5; done
@@ -58,4 +59,15 @@ export_env MACSH_IT_S3_ACCESS macshak
 export_env MACSH_IT_S3_SECRET "$PASS"
 export_env MACSH_IT_S3_BUCKET bkt
 export_env MACSH_IT_S3_DIR "$D/s3-data"
+# ---- SMB ----------------------------------------------------------------------------
+mkdir -p "$D/smb-data"
+nohup "$D/venv/bin/python" "$(dirname "$0")/smb_server.py" 4450 macsh "$PASS" macshshare "$D/smb-data" \
+  > "$D/smb.log" 2>&1 &
+for _ in $(seq 1 20); do nc -z 127.0.0.1 4450 && break; sleep 0.5; done
+nc -z 127.0.0.1 4450 || { echo "SMB server did not start"; cat "$D/smb.log"; exit 1; }
+export_env MACSH_IT_SMB_PORT 4450
+export_env MACSH_IT_SMB_USER macsh
+export_env MACSH_IT_SMB_PASS "$PASS"
+export_env MACSH_IT_SMB_SHARE macshshare
+export_env MACSH_IT_SMB_DIR "$D/smb-data"
 echo "backends up"

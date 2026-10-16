@@ -12,6 +12,7 @@ final class ConnectionTesterExplainTests: XCTestCase {
             "SignatureDoesNotMatch: The request signature we calculated does not match",
             "error listing: 401 Unauthorized",
             "oauth2: cannot fetch token: invalid_grant",
+            "smb: failed to connect: NT Status Error: STATUS_LOGON_FAILURE",
         ]
         for s in samples {
             XCTAssertTrue(explain(s).hasPrefix("Authentication failed"), s)
@@ -28,6 +29,7 @@ final class ConnectionTesterExplainTests: XCTestCase {
 
     func testMissingFolderAndCertificate() {
         XCTAssertTrue(explain("directory not found").hasPrefix("Folder or bucket not found"))
+        XCTAssertTrue(explain("tree connect failed: STATUS_BAD_NETWORK_NAME").hasPrefix("Folder or bucket not found"))
         XCTAssertTrue(explain("NoSuchBucket: The specified bucket does not exist").hasPrefix("Folder or bucket not found"))
         XCTAssertTrue(explain("tls: failed to verify certificate: x509: certificate signed by unknown authority").hasPrefix("TLS certificate"))
     }

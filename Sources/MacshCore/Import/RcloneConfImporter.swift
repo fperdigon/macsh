@@ -11,10 +11,21 @@ public struct ImportedRemote {
     /// Options of the section macsh does not use, so the user knows what was dropped.
     public var ignoredOptions: [String] = []
 
+    /// SMB needs a share name, which rclone.conf does not hold (it is part of the path).
+    public var needsRemotePath = false
+
     /// rclone.conf has no bucket, so S3 remotes need one before they can mount.
     public var needsBucket: Bool {
         if case .s3(let c) = remote.backend { return c.bucket.isEmpty }
         return false
+    }
+
+    public mutating func setSharePath(_ path: String) {
+        if case .rclone(var c) = remote.backend {
+            c.remotePath = path.trimmingCharacters(in: .whitespaces)
+            remote.backend = .rclone(c)
+            needsRemotePath = c.remotePath.isEmpty
+        }
     }
 
     public mutating func setBucket(_ bucket: String) {
@@ -32,7 +43,7 @@ public enum ImportOutcome {
 
 /// Converts rclone.conf sections to macsh remotes for the backends macsh supports.
 public enum RcloneConfImporter {
-    public static let supportedTypes = ["sftp", "s3", "ftp", "webdav", "drive"]
+    public static let supportedTypes = ["sftp", "s3", "ftp", "webdav", "drive", "smb"]
 
     public static func isSupported(type: String) -> Bool { supportedTypes.contains(type) }
 
@@ -42,6 +53,7 @@ public enum RcloneConfImporter {
         "ftp": ["host", "port", "user", "pass", "tls", "explicit_tls"],
         "webdav": ["url", "vendor", "user", "pass"],
         "drive": ["scope", "client_id", "client_secret", "token", "team_drive", "root_folder_id"],
+        "smb": ["host", "port", "user", "pass", "domain"],
     ]
 
     /// `reveal` turns an obscured rclone password into plaintext (`rclone reveal`).
@@ -138,6 +150,18 @@ public enum RcloneConfImporter {
                     remotePath: ""))
                 imported.options = ["token": value("token")]
                 if !value("client_secret").isEmpty { imported.options["client_secret"] = value("client_secret") }
+
+            case "smb":
+                guard !value("host").isEmpty else { return .unsupported("The SMB host is missing") }
+                guard !value("user").isEmpty, !value("pass").isEmpty else {
+                    return .unsupported("No user and password saved for this SMB remote")
+                }
+                var values = ["host": value("host"), "port": value("port").isEmpty ? "445" : value("port"),
+                              "user": value("user"), "domain": value("domain")]
+                if Int(values["port"] ?? "") == nil { values["port"] = "445" }
+                backend = .rclone(BackendDescriptor.smb.makeConfig(values: values, remotePath: ""))
+                imported.options = ["pass": try plain(value("pass"))]
+                imported.needsRemotePath = true
 
             default:
                 return .unsupported("Type \"\(section.type)\" is not supported by macsh yet")

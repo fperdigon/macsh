@@ -81,7 +81,7 @@ public enum ConnectionTester {
 
         if has("unable to authenticate", "permission denied (", "login incorrect", "authentication failed",
                "invalidaccesskeyid", "signaturedoesnotmatch", "accessdenied", "access denied", "unauthorized",
-               "invalid_grant", "invalid credentials", "bad credentials") {
+               "invalid_grant", "invalid credentials", "bad credentials", "logon_failure", "logon failure") {
             return "Authentication failed — check the user, password, key or token."
         }
         if has("certificate", "x509") {
@@ -92,7 +92,8 @@ public enum ConnectionTester {
             return "Could not reach the server — check the host, port and network."
         }
         if has("directory not found", "nosuchbucket", "no such file", "object not found",
-               "bucket not found", "couldn't find", "404 not found", "error listing") {
+               "bucket not found", "couldn't find", "404 not found", "error listing",
+               "bad_network_name", "network name") {
             return "Folder or bucket not found — check the path."
         }
         let tail = stderr.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
