@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Starts real SFTP (sshd), FTP and S3 servers on localhost for the integration tests and
-# exports MACSH_IT_* variables to $GITHUB_ENV. Meant for macOS CI runners (passwordless sudo).
-#   SFTP: the system sshd on port 2222, dedicated user, password + key auth
+# exports MACSH_IT_* variables to $GITHUB_ENV. Meant for macOS CI runners .
+#   SFTP: asyncssh server on port 2222, password + key auth
 #   FTP : pyftpdlib (pip, in a venv)
 #   S3  : `rclone serve s3` (S3 protocol server backed by a directory)
 set -euo pipefail
@@ -16,36 +16,21 @@ export_env() { echo "$1=$2" >> "${GITHUB_ENV:-/dev/null}"; }
 echo "::add-mask::$PASS"
 
 # ---- SFTP ---------------------------------------------------------------------------
-sudo sysadminctl -addUser "$SFTP_USER" -fullName "macsh it" -password "$PASS" -home "/Users/$SFTP_USER" || true
-sudo mkdir -p "/Users/$SFTP_USER" && sudo chown "$SFTP_USER" "/Users/$SFTP_USER"
-mkdir -p "$D/sftp-data" && chmod 777 "$D/sftp-data"
+# asyncssh server (password + public-key auth): macOS PAM rejects throwaway OS users.
+SFTP_USER=macshit
+mkdir -p "$D/sftp-data"
 ssh-keygen -q -t ed25519 -N "" -f "$D/id_ed25519"
-cp "$D/id_ed25519.pub" "$D/authorized_keys"; chmod 666 "$D/authorized_keys"
+cp "$D/id_ed25519.pub" "$D/authorized_keys"
 ssh-keygen -q -t ed25519 -N "" -f "$D/host_key"
-cat > "$D/sshd_config" <<CFG
-Port 2222
-ListenAddress 127.0.0.1
-HostKey $D/host_key
-PidFile $D/sshd.pid
-AuthorizedKeysFile $D/authorized_keys
-StrictModes no
-PasswordAuthentication yes
-PubkeyAuthentication yes
-KbdInteractiveAuthentication no
-UsePAM yes
-AllowUsers $SFTP_USER
-Subsystem sftp /usr/libexec/sftp-server
-CFG
-sudo /usr/sbin/sshd -f "$D/sshd_config" -E "$D/sshd.log"
+python3 -m venv "$D/venv"
+"$D/venv/bin/pip" install --quiet asyncssh pyftpdlib
+nohup "$D/venv/bin/python" "$(dirname "$0")/sftp_server.py" 2222 "$SFTP_USER" "$PASS" \
+  "$D/host_key" "$D/authorized_keys" > "$D/sshd.log" 2>&1 &
 for _ in $(seq 1 20); do nc -z 127.0.0.1 2222 && break; sleep 0.5; done
 # Prove both auth methods work before the tests blame macsh.
-if ! ssh -v -p 2222 -i "$D/id_ed25519" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-  "$SFTP_USER@127.0.0.1" true 2> "$D/ssh-client.log"; then
-  echo "--- ssh client"; tail -n 25 "$D/ssh-client.log"
-  echo "--- sshd log"; sudo cat "$D/sshd.log" || true
-  dscl . -read "/Users/$SFTP_USER" || true
-  exit 1
-fi
+printf 'ls %s\n' "$D/sftp-data" > "$D/batch"
+sftp -P 2222 -i "$D/id_ed25519" -b "$D/batch" -o BatchMode=yes -o StrictHostKeyChecking=no \
+  -o UserKnownHostsFile=/dev/null "$SFTP_USER@127.0.0.1" || { cat "$D/sshd.log"; exit 1; }
 export_env MACSH_IT_SFTP_PORT 2222
 export_env MACSH_IT_SFTP_USER "$SFTP_USER"
 export_env MACSH_IT_SFTP_PASS "$PASS"
@@ -55,8 +40,6 @@ export_env MACSH_IT_SFTP_DIR "$D/sftp-data"
 
 # ---- FTP ----------------------------------------------------------------------------
 mkdir -p "$D/ftp-data"
-python3 -m venv "$D/venv"
-"$D/venv/bin/pip" install --quiet pyftpdlib
 nohup "$D/venv/bin/python" -m pyftpdlib -i 127.0.0.1 -p 2121 -d "$D/ftp-data" -u macsh -P "$PASS" \
   > "$D/ftp.log" 2>&1 &
 for _ in $(seq 1 20); do nc -z 127.0.0.1 2121 && break; sleep 0.5; done
