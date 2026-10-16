@@ -37,6 +37,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Nightly builds publish again.** The rolling `nightly` release could not be recreated once
+  GitHub's immutable releases were on ("tag_name was used by an immutable release"), so every
+  build after the first failed. Each push to `main` now publishes its own
+  `nightly-YYYYMMDD-<sha>` pre-release.
 - Deleting an S3 remote now also removes its Keychain items.
 
 ## [0.1.3] — 2026-10-16

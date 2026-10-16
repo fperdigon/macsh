@@ -43,7 +43,9 @@ environment without macOS, open a PR and let CI be the judge.
 
 - Develop on a branch, open a PR against `main` on this repo, and keep CI green.
   CI runs on every PR and on pushes to `main`.
-- Every push to `main` refreshes the rolling `nightly` pre-release. A `v*` tag publishes a
+- Every push to `main` publishes a `nightly-YYYYMMDD-<sha>` pre-release (`scripts/publish-nightly.sh`;
+  newest 10 kept, change history carried forward; one release per commit because immutable
+  releases never allow a tag name to be reused). A `v*` tag publishes a
   release; the tag must match `CFBundleShortVersionString` in
   `App/macsh/Resources/Info.plist` and `Info-Lite.plist`.
 - Update `CHANGELOG.md` (Keep a Changelog format, `[Unreleased]` section) for user-visible
