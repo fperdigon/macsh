@@ -52,8 +52,14 @@ fi
   fi
 } | head -c 100000 > notes.md
 
+# Nightly file names carry the date and commit, not the version of the last release:
+# macsh-nightly-<date>-<sha>.dmg, macsh-lite-nightly-<date>-<sha>.dmg.
 for f in dist/*.dmg; do
-  mv "$f" "${f%.dmg}-nightly-${day}-${short}.dmg"
+  case "$(basename "$f")" in
+    macsh-lite-*) flavor=macsh-lite ;;
+    *) flavor=macsh ;;
+  esac
+  mv "$f" "dist/${flavor}-nightly-${day}-${short}.dmg"
 done
 
 gh release create "$tag" dist/*.dmg \
