@@ -486,9 +486,11 @@ public final class SessionManager: ObservableObject {
             session.rcloneProcess = spawned.process
             let watched = spawned.process
             watched.terminationHandler = { [weak self, weak session] _ in
+                // Bind strong locals first: older compilers reject using the captured weak
+                // vars inside the concurrently-executing Task.
+                guard let manager = self, let exited = session else { return }
                 Task { @MainActor in
-                    guard let self, let session else { return }
-                    await self.handleRcloneExit(session: session, process: watched)
+                    await manager.handleRcloneExit(session: exited, process: watched)
                 }
             }
             session.mountpoint = mountpoint
