@@ -25,7 +25,10 @@ WebDAV/Nextcloud, SMB and Google Drive (the generic `Backend.rclone` model; OAut
 - `App/macsh/` – SwiftUI app, generated with xcodegen from `App/project.yml`
   (flavors `macsh` with bundled rclone and `macsh-lite`).
 - `Tests/MacshCoreTests/` – unit and integration tests.
-- `scripts/` – release build; `scripts/ci/` – servers used by the integration CI jobs.
+- `scripts/` – release build; `scripts/ci/` – servers used by the integration CI jobs;
+  `scripts/bench-mount.py` – benchmark of a live mount (listing, upload and cold-read
+  speed, measured on the wire with `nettop`); its unit tests are in `scripts/tests/`
+  (`python3 -m unittest discover -s scripts/tests`).
 - `.github/workflows/` – `ci.yml` (build, tests, coverage, integration, app compile), `release.yml`.
 
 ## Build and test
