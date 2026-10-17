@@ -27,6 +27,9 @@ jobs:
       - name: Build
         run: swift build
 
+      - name: DMG verifier tests (scripts/verify-dmg.sh)
+        run: python3 -m unittest discover -s scripts/tests -v
+
       - name: Test with coverage
         run: swift test --enable-code-coverage
 

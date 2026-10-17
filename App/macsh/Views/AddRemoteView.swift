@@ -102,8 +102,10 @@ struct AddRemoteView: View {
         }
         _kind = State(initialValue: initialKind)
         let proto = editing?.mountProtocol ?? prefs.defaultProtocol
+        var initialType: String? = initialKind.descriptor?.type
+        if case .rclone(let cfg)? = editing?.backend { initialType = cfg.type }
         _customizeTuning = State(initialValue: editing?.tuning != nil)
-        _tuning = State(initialValue: editing?.tuning ?? .defaults(for: proto))
+        _tuning = State(initialValue: editing?.tuning ?? .defaults(for: proto, backendType: initialType))
         _readOnly = State(initialValue: editing?.readOnly ?? false)
         _bandwidth = State(initialValue: editing?.bandwidthLimit ?? "")
         _sftp = State(initialValue: sftpDraft)
@@ -126,6 +128,12 @@ struct AddRemoteView: View {
         return []
     }
 
+    /// rclone backend type behind the current form, used to pick cloud-friendly tuning defaults.
+    private var currentBackendType: String? {
+        if case .rclone(let cfg)? = editingRemote?.backend { return cfg.type }
+        return kind.descriptor?.type
+    }
+
     private var currentProtocol: MountProtocol {
         switch kind {
         case .sftp: return sftp.mountProtocol
@@ -143,7 +151,7 @@ struct AddRemoteView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     form
-                    TuningSection(customize: $customizeTuning, tuning: $tuning, mountProtocol: currentProtocol)
+                    TuningSection(customize: $customizeTuning, tuning: $tuning, mountProtocol: currentProtocol, backendType: currentBackendType)
                     MountOptionsSection(readOnly: $readOnly, bandwidth: $bandwidth)
                 }
                 .padding(20)

@@ -49,7 +49,10 @@ Releases are **unsigned** (no Apple Developer ID yet). Pick one DMG from
 the [latest release](https://github.com/AyonPal/macsh/releases) and drag
 the app to `/Applications`.
 
-Then run the matching command **once** to clear macOS's Gatekeeper flag:
+The apps are signed ad hoc but not notarized (no Apple Developer ID), so the first launch
+asks you to confirm: **right-click the app and choose Open**, or open *System Settings ->
+Privacy & Security* and click **Open Anyway**. Or run the matching command **once** to clear
+macOS's Gatekeeper flag:
 
 ```bash
 # if you installed macsh
@@ -59,8 +62,9 @@ xattr -dr com.apple.quarantine /Applications/macsh.app
 xattr -dr com.apple.quarantine /Applications/macsh-lite.app
 ```
 
-Without that you'll see *"macsh is damaged and can't be opened"* —
-that's Gatekeeper, not actual corruption.
+If you see *"macsh is damaged and can't be opened"*, that's Gatekeeper rejecting an app whose
+signature does not match its contents (older builds, before this was fixed), not corruption of
+your download: the command above gets past it.
 
 Launch the app. A small icon appears in your menu bar; click it to add
 your first remote.

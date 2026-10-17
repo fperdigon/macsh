@@ -57,9 +57,17 @@ public final class OAuthAuthorizer {
         scope: String?, timeout: TimeInterval
     ) throws -> String {
         var args = ["authorize", backend]
-        if let id = clientID, !id.isEmpty, let secret = clientSecret, !secret.isEmpty {
-            args += [id, secret]
+        let id = (clientID ?? "").trimmingCharacters(in: .whitespaces)
+        let secret = (clientSecret ?? "").trimmingCharacters(in: .whitespaces)
+        // Half a pair used to fall back to rclone's shared client silently. That token only
+        // works for an hour: the mount later refreshes it with *your* client and Google
+        // answers `unauthorized_client`. Refuse instead.
+        if id.isEmpty != secret.isEmpty {
+            throw OAuthError.failed(id.isEmpty
+                ? "A client secret was entered without a client ID. Enter both, or clear both to use rclone's shared client."
+                : "Enter the client secret together with the client ID (Google does not show it again; add a new secret in the console), or clear the client ID.")
         }
+        if !id.isEmpty { args += [id, secret] }
         let p = Process()
         p.executableURL = binary
         p.arguments = args

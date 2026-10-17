@@ -65,7 +65,10 @@ public final class SessionManager: ObservableObject {
         let volnames = sessions.map { mounter.volumeName(from: $0.remote.name) }
         Task { @MainActor [weak self] in
             // pgrep / mount / diskutil: keep them off the main thread.
-            try? await Self.offMain { for v in volnames { mounter.reconcileStaleMount(volumeName: v) } }
+            try? await Self.offMain {
+                for v in volnames { mounter.reconcileStaleMount(volumeName: v) }
+                mounter.reconcileLeftoverNFSMounts()
+            }
             guard let self else { return }
             for session in self.sessions where session.remote.autoMount {
                 self.scheduleMount(remoteID: session.id, attempt: 0)
@@ -432,7 +435,7 @@ public final class SessionManager: ObservableObject {
             let envOverrides = prepared.envOverrides
             let remotePath = prepared.remotePath
             let logURL = logsDir.appendingPathComponent("\(remote.id.uuidString).log")
-            let tuning = remote.tuning ?? .defaults(for: remote.mountProtocol)
+            let tuning = remote.effectiveTuning
             let extraArgs = MountOptions.serveArgs(readOnly: remote.readOnly, bandwidthLimit: remote.bandwidthLimit)
             let runner = RcloneProcess(binary: rcloneBinary, logFile: logURL)
             let volname = mounter.volumeName(from: remote.name)
@@ -481,6 +484,15 @@ public final class SessionManager: ObservableObject {
             }
 
             session.rcloneProcess = spawned.process
+            let watched = spawned.process
+            watched.terminationHandler = { [weak self, weak session] _ in
+                // Bind strong locals first: older compilers reject using the captured weak
+                // vars inside the concurrently-executing Task.
+                guard let manager = self, let exited = session else { return }
+                Task { @MainActor in
+                    await manager.handleRcloneExit(session: exited, process: watched)
+                }
+            }
             session.mountpoint = mountpoint
             session.ephemeralKeyURL = ephemeralKeyURL
             session.rcloneConfigURL = spawned.configURL
@@ -532,7 +544,9 @@ public final class SessionManager: ObservableObject {
     }
 
     private func finishUnmount(_ session: RemoteSession) {
-        if let proc = session.rcloneProcess, proc.isRunning {
+        let proc = session.rcloneProcess
+        session.rcloneProcess = nil          // so the exit watcher sees this was intentional
+        if let proc, proc.isRunning {
             proc.terminate()
         }
         if let url = session.ephemeralKeyURL {
@@ -561,6 +575,31 @@ public final class SessionManager: ObservableObject {
                 try? keychain.set(remoteID: session.id, kind: .option(opt.name), value: fresh)
             }
         }
+    }
+
+    /// rclone exited while its remote was still marked mounted (killed, crashed, machine
+    /// slept through a connection drop). The mount it served is now dead and macOS would
+    /// pop up "Server connections interrupted", so drop it, record why, and retry if the
+    /// remote is set to auto-mount.
+    func handleRcloneExit(session: RemoteSession, process: Process) async {
+        // Intentional unmount/shutdown detach the process first; anything else is a surprise.
+        guard session.rcloneProcess === process, case .mounted = session.status else { return }
+        let status = process.terminationStatus
+        let mountpoint = session.mountpoint
+        session.rcloneProcess = nil
+        if let mp = mountpoint {
+            let mounter = self.mounter
+            _ = try? await Self.offMain { try mounter.forceUnmount(mountpoint: mp) }
+        }
+        if let url = session.ephemeralKeyURL { try? FileManager.default.removeItem(at: url) }
+        session.mountpoint = nil
+        session.ephemeralKeyURL = nil
+        var reason = "rclone stopped unexpectedly (exit \(status)); the mount was removed"
+        if let tail = Self.logTail(of: logsDir.appendingPathComponent("\(session.id.uuidString).log")) {
+            reason += "\n" + tail
+        }
+        session.transition(to: .failed(reason: reason))
+        if session.remote.autoMount { scheduleMount(remoteID: session.id, attempt: 0) }
     }
 
     public func shutdownAll() {

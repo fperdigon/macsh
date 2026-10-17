@@ -62,11 +62,17 @@ final class OAuthAuthorizerTests: XCTestCase {
         XCTAssertTrue(lines.contains("ENV:RCLONE_DRIVE_SCOPE=drive.readonly"))
     }
 
-    func testClientIDWithoutSecretIsNotPassed() async throws {
+    func testClientIDWithoutSecretIsRefusedAndRcloneIsNotLaunched() async throws {
+        // It used to be dropped silently, authorizing against rclone's shared client; the
+        // resulting token stops refreshing once the mount uses the custom client.
         let (rclone, _) = try make()
-        _ = try await OAuthAuthorizer().authorize(binary: rclone.binary, backend: "drive", clientID: "cid")
-        XCTAssertEqual(Array(rclone.recordedLines().prefix(2)), ["authorize", "drive"])
-        XCTAssertFalse(rclone.recordedLines().contains("cid"))
+        do {
+            _ = try await OAuthAuthorizer().authorize(binary: rclone.binary, backend: "drive", clientID: "cid")
+            XCTFail("expected a refusal")
+        } catch OAuthError.failed(let message) {
+            XCTAssertTrue(message.contains("client secret"), message)
+        }
+        XCTAssertTrue(rclone.recordedLines().isEmpty, "rclone must not run with half a client")
     }
 
     func testFailureSurfacesRcloneMessage() async throws {
@@ -112,6 +118,20 @@ final class OAuthAuthorizerTests: XCTestCase {
             XCTFail("expected failure")
         } catch {
             guard case OAuthError.launchFailed = error else { return XCTFail("\(error)") }
+        }
+    }
+
+    func testClientIDWithoutSecretIsRefusedInsteadOfUsingTheSharedClient() async {
+        let binary = URL(fileURLWithPath: "/usr/bin/false")     // must never be launched
+        for (id, secret) in [("my-id.apps.googleusercontent.com", ""), ("my-id", "   "), ("", "my-secret"), ("  ", "my-secret")] {
+            do {
+                _ = try await OAuthAuthorizer().authorize(binary: binary, backend: "drive", clientID: id, clientSecret: secret)
+                XCTFail("expected a refusal for id=\(id) secret=\(secret)")
+            } catch OAuthError.failed(let message) {
+                XCTAssertTrue(message.contains("client"), message)
+            } catch {
+                XCTFail("unexpected error \(error)")
+            }
         }
     }
 }

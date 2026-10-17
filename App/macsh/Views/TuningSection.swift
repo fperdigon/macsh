@@ -9,6 +9,8 @@ struct TuningSection: View {
     @Binding var customize: Bool
     @Binding var tuning: TransferTuning
     let mountProtocol: MountProtocol
+    /// rclone backend type ("drive", "onedrive", ...) for generic backends, else nil.
+    var backendType: String? = nil
 
     var body: some View {
         Form {
@@ -16,7 +18,7 @@ struct TuningSection: View {
                 LabeledContent("Settings") {
                     Toggle("Customize performance settings", isOn: $customize)
                         .onChange(of: customize) { _, on in
-                            if on { tuning = .defaults(for: mountProtocol) }
+                            if on { tuning = .defaults(for: mountProtocol, backendType: backendType) }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -39,12 +41,33 @@ struct TuningSection: View {
                     textRow("Max cache size", $tuning.cacheMaxSize, "5G")
                     textRow("Dir cache time", $tuning.dirCacheTime, "10s")
                     textRow("Write-back delay", $tuning.writeBack, "1s")
+                    textRow("Poll interval", $tuning.pollInterval, "30s")
+                    LabeledContent("Parallel reads") {
+                        Stepper(value: $tuning.readChunkStreams, in: 0...32) {
+                            Text(tuning.readChunkStreams == 0 ? "Off (single stream)" : "\(tuning.readChunkStreams) streams per file")
+                        }
+                    }
+                    textRow("Read chunk size", $tuning.readChunkSize, "32M")
+                    LabeledContent("Folders") {
+                        Toggle("Prefetch folder structure at mount", isOn: $tuning.prefetchFolders)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    if backendType == "drive" {
+                        LabeledContent("Google Drive") {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Toggle("Allow files flagged as malware/abuse", isOn: $tuning.acknowledgeAbuse)
+                                Text("Off by default. Google refuses to serve flagged files; turning this on downloads them anyway.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
                     HStack {
                         Text("Empty uses rclone's default.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Button("Reset to defaults") { tuning = .defaults(for: mountProtocol) }
+                        Button("Reset to defaults") { tuning = .defaults(for: mountProtocol, backendType: backendType) }
                     }
                 }
             }
@@ -54,10 +77,11 @@ struct TuningSection: View {
     }
 
     private var defaultsSummary: String {
-        let d = TransferTuning.defaults(for: mountProtocol)
+        let d = TransferTuning.defaults(for: mountProtocol, backendType: backendType)
         var s = "Defaults for \(mountProtocol == .nfs ? "NFS" : "WebDAV"): cache \(d.cacheMode.rawValue)"
         if !d.readAhead.isEmpty { s += ", read-ahead \(d.readAhead)" }
         if !d.cacheMaxSize.isEmpty { s += ", up to \(d.cacheMaxSize)" }
+        if d.prefetchFolders { s += ", folders prefetched, \(d.dirCacheTime) cache with \(d.pollInterval) change polling" }
         return s
     }
 
