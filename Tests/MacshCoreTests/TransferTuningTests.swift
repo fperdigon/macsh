@@ -192,11 +192,14 @@ final class TransferTuningTests: XCTestCase {
 
     // MARK: parallel reads
 
-    func testDriveDefaultsReadInParallel() {
+    func testParallelReadsAreOptInEvenForDrive() {
         let t = TransferTuning.defaults(for: .nfs, backendType: "drive")
-        XCTAssertEqual(t.readChunkStreams, 4)
-        XCTAssertEqual(t.readChunkSize, "32M")
-        let args = t.serveArgs(liveUpdates: true)
+        XCTAssertEqual(t.readChunkStreams, 0, "measured no gain on Google Drive, so not a default")
+        XCTAssertFalse(t.serveArgs(liveUpdates: true).contains("--vfs-read-chunk-streams"))
+        var custom = t
+        custom.readChunkStreams = 4
+        custom.readChunkSize = "32M"
+        let args = custom.serveArgs(liveUpdates: true)
         XCTAssertEqual(args[(args.firstIndex(of: "--vfs-read-chunk-streams") ?? 0) + 1], "4")
         XCTAssertEqual(args[(args.firstIndex(of: "--vfs-read-chunk-size") ?? 0) + 1], "32M")
     }

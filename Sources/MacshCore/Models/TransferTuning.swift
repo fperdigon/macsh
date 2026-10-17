@@ -28,7 +28,8 @@ public struct TransferTuning: Codable, Equatable {
     /// Off by default; only meaningful for Google Drive.
     public var acknowledgeAbuse: Bool
     /// Parallel ranged downloads per file (`--vfs-read-chunk-streams`). 0 = rclone's single
-    /// stream. A single stream from Google Drive measured 0.5-1.4 MB/s on a 31 MB/s link.
+    /// stream (the default). Measured on Google Drive: 4 x 32M changed nothing (fresh 50 MB
+    /// files 12-16 MB/s either way, slow archives 1.2-2.5 vs 1.4-1.6 MB/s), so it is opt-in.
     public var readChunkStreams: Int
     /// Size of each parallel chunk (`--vfs-read-chunk-size`). Empty = rclone's 128M.
     public var readChunkSize: String
@@ -83,8 +84,6 @@ public struct TransferTuning: Codable, Equatable {
             t.dirCacheTime = "1h"
             t.pollInterval = "30s"
             t.prefetchFolders = true
-            t.readChunkStreams = 4
-            t.readChunkSize = "32M"
         }
         return t
     }
