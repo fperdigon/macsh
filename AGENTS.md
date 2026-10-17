@@ -58,6 +58,13 @@ environment without macOS, open a PR and let CI be the judge.
   `App/macsh/Resources/Info.plist` and `Info-Lite.plist`.
 - Update `CHANGELOG.md` (Keep a Changelog format, `[Unreleased]` section) for user-visible
   changes. Update the README when adding a backend.
+- **Release notes are written for users first.** Tagged-release notes are built from the
+  `CHANGELOG.md` section of the version (`scripts/release-body.sh`): "What's new" lists the
+  features (Added, Changed) first, then the bugs fixed (Fixed), described by what the user gets or
+  no longer suffers, not by how it was done. Internal work (CI, tests, scripts, refactors, build
+  and release tooling) goes under `### For developers` in the same section, which the release
+  page shows as a collapsed "For developers" block together with the commit list. Never put CI/CD
+  or tooling items in Added/Changed/Fixed. Write the CHANGELOG section before tagging.
 - Commit messages: short imperative subject, explain the why in the body.
 - Keep changes focused; do not refactor unrelated code in a feature PR.
 

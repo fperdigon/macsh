@@ -10,81 +10,60 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **DMG verification.** `scripts/verify-dmg.sh` checks a built DMG the way a user's Mac will
-  (checksum, layout, version, arm64, whole-bundle signature, bundled rclone, Gatekeeper's verdict
-  after a simulated download) without launching the app. It runs at the end of `build-release.sh`,
-  so the release workflow fails on a bad DMG.
-- **`scripts/bench-mount.py`** benchmarks a live mount: listing time, upload and cold-read
-  speed measured on the wire (`nettop`), flagging reads answered from a cache.
-- **Cloud mounts are faster to browse.** Google Drive, OneDrive, Dropbox and Box remotes default
-  to prefetching the folder tree, a 1 h directory cache and `--poll-interval 30s` (a Drive root
-  listing went from 43-47 s and a timeout to under 0.1 s). New per-remote settings: poll
-  interval, prefetch, parallel read streams (off by default: no gain measured) and, for Google
-  Drive, an opt-in "allow files flagged as malware/abuse".
-- **Google client ID guidance.** The Drive form explains that an empty client ID uses rclone's
-  shared, rate-limited client (being retired in 2026) and links to rclone's guide.
-
-- **Azure Blob, Backblaze B2 (native API) and Google Cloud Storage backends**, declared
-  as descriptors; account keys and service-account JSON stay in the Keychain.
-- **"Other rclone backend" escape hatch.** Any rclone backend by type, with plain options
-  and secret options in separate boxes. Plain options that look like secrets are rejected;
-  secret ones go to the Keychain and reach rclone only through the environment.
-- **WebDAV / Nextcloud / ownCloud backend.** Mount any WebDAV server; the
-  password (use an app password for Nextcloud) is kept in the Keychain and
-  passed to rclone through the environment, never written to the config.
-- **Google Drive backend.** Sign in through the browser (`rclone authorize drive`);
-  choose full, read-only or per-file access, a shared drive or root folder, and
-  optionally your own OAuth client ID/secret. Google Docs/Sheets/Slides appear as
-  exported Office files (rclone's default).
-- **OAuth sign-in framework.** The token is stored in the Keychain, handed to rclone
-  through the environment, and any token rclone refreshes while mounted is written
-  back to the Keychain when the mount ends.
-
-- **In-app updates with a stable/nightly choice.** Settings -> Updates picks the channel
-  (tagged releases, or the per-commit nightly builds) and whether to check once a day;
-  "Check for updates..." downloads the DMG for your flavor (macsh or macsh-lite), checks its
-  SHA-256, swaps the app in place and relaunches. Builds now embed their commit so a nightly
-  knows whether it is current. Updates come from `fperdigon/macsh` releases.
-- **SMB / Windows shares (NAS, Samba)** as a backend, with host, port, user, password, optional
-  domain and the share name as the folder; also importable from rclone.conf.
-- **Test connection.** A button in the Add/Edit window checks the form's values against
-  the server (without saving or mounting) and explains failures: wrong password, host
-  unreachable, folder or bucket not found, untrusted certificate.
-- **Import from rclone.conf.** "Import from rclone…" in the menu reads your existing
-  rclone config (SFTP, S3, FTP, WebDAV/Nextcloud, Google Drive), reveals the saved
-  passwords once and stores them in the Keychain. S3 remotes ask for a bucket; other types
-  (crypt, alias, ...) are listed as not supported yet.
-- **Read-only mounts** and an optional **bandwidth limit** per remote (any backend).
+- **More places to mount.** WebDAV / Nextcloud / ownCloud, Google Drive (sign in through the
+  browser; choose full, read-only or per-file access, a shared drive or root folder, or your
+  own OAuth client), SMB / Windows shares (NAS, Samba), Azure Blob Storage, Backblaze B2 and
+  Google Cloud Storage. Passwords and keys stay in the Keychain.
+- **"Other rclone backend".** Mount any other rclone backend by typing its type and options;
+  secret options are kept in the Keychain and never written to a file.
+- **Test connection.** A button in the Add/Edit window checks your settings against the server
+  (without saving or mounting) and explains failures: wrong password, host unreachable, folder
+  or bucket not found, untrusted certificate.
+- **Import from rclone.conf.** "Import from rclone…" in the menu reads your existing rclone
+  config (SFTP, S3, FTP, WebDAV/Nextcloud, Google Drive, SMB) and stores the passwords in the
+  Keychain. Unsupported types (crypt, alias, ...) are listed as such.
+- **Read-only mounts** and an optional **bandwidth limit** per remote.
+- **Updates from inside the app.** Settings → Updates lets you follow tagged releases or the
+  nightly builds, and "Check for updates…" downloads, verifies and installs the new version
+  and relaunches.
+- **Google Drive and other cloud mounts browse much faster.** A Drive root listing went from
+  43-47 s (and a timeout) to under 0.1 s. New per-remote settings: poll interval, prefetch,
+  parallel read streams (off by default) and, for Google Drive, an opt-in for files flagged as
+  malware.
+- **Google client ID guidance** in the Drive form: an empty client ID uses rclone's shared,
+  rate-limited client (being retired in 2026).
 
 ### Changed
 
-- NFS mounts wait up to 60 s per request (`timeo=600`) instead of 3 s.
-
-- **Generic backend model.** New rclone backends are declared as data
-  (`BackendDescriptor`) and stored as `Backend.rclone`, so adding one no longer
-  needs new `switch` arms in `SessionManager` or a hand-written form.
-  Existing SFTP / S3 / FTP remotes and `remotes.json` are unchanged.
+- NFS mounts wait up to 60 s per request instead of 3 s, so slow servers no longer drop the
+  mount.
 
 ### Fixed
 
-- **"macsh is damaged and can't be opened" on install.** The release build had signing
-  disabled, so the app's signature did not cover its own contents and Gatekeeper could not
-  assess a downloaded copy. Apps are now sealed with an ad-hoc signature (users get the normal
-  "unidentified developer" prompt: right-click > Open or Privacy & Security > Open Anyway).
-- **Stale NFS mounts.** A dead rclone left its NFS mount behind, so macOS showed "Server
+- **"macsh is damaged and can't be opened" after installing.** The app's signature did not
+  cover its own contents, so macOS rejected a downloaded copy. You now get the normal
+  "unidentified developer" prompt (right-click → Open, or Privacy & Security → Open Anyway).
+- **Stale NFS mounts.** A crashed rclone left its mount behind, so macOS showed "Server
   connections interrupted" and the next mount became `<name>-2`, `-3`, ... Leftovers are
-  unmounted at launch, an rclone that exits while mounted is detected (mount removed, remote
-  marked failed, retried if auto-mount is on), and SIGTERM/SIGINT now quit cleanly.
-- **Google Drive stopped working an hour after "Sign in again".** With a client ID but a blank
-  (kept) secret, sign-in silently used rclone's shared client, whose token the mount then could
-  not refresh (`unauthorized_client`). Half-filled client credentials are now refused, and
-  changing the client ID on an existing remote requires signing in again.
-
-- **Nightly builds publish again.** The rolling `nightly` release could not be recreated once
-  GitHub's immutable releases were on ("tag_name was used by an immutable release"), so every
-  build after the first failed. Each push to `main` now publishes its own
-  `nightly-YYYYMMDD-<sha>` pre-release.
+  cleaned up at launch, an rclone that dies while mounted is detected (the remote is marked
+  failed and retried if auto-mount is on), and quitting by signal now exits cleanly.
+- **Google Drive stopped working an hour after "Sign in again".** Half-filled client
+  credentials silently used rclone's shared client, whose token could not be refreshed. They
+  are now refused, and changing the client ID requires signing in again.
 - Deleting an S3 remote now also removes its Keychain items.
+
+### For developers
+
+- `scripts/verify-dmg.sh` checks a built DMG the way a user's Mac will (checksum, layout,
+  version, arm64, signature, bundled rclone, Gatekeeper) and runs at the end of
+  `build-release.sh`, so the release workflow fails on a bad DMG.
+- `scripts/bench-mount.py` benchmarks a live mount (listing time, upload and cold-read speed).
+- New rclone backends are declared as data (`BackendDescriptor`, stored as `Backend.rclone`)
+  instead of new `switch` arms; `remotes.json` of existing remotes is unchanged.
+- CI runs real servers (Nextcloud, SFTP, FTP, S3, SMB/Samba, Azure/Azurite) through macsh's
+  own pipeline, compiles the app, and fails a PR with under 80% coverage of its new lines.
+- Nightly builds publish again: each push to `main` makes one `nightly-YYYYMMDD-<sha>`
+  pre-release (immutable releases forbid reusing a tag) and only the newest is kept.
 
 ## [0.1.3] — 2026-10-16
 

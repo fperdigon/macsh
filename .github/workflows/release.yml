@@ -57,19 +57,7 @@ jobs:
         if: github.ref_type == 'tag'
         run: |
           prev_tag="$(git describe --tags --abbrev=0 --match 'v*' "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
-          {
-            if [ -n "$prev_tag" ]; then
-              echo "## Changes since ${prev_tag}"
-            else
-              echo "## Changes"
-            fi
-            echo
-            ./scripts/release-notes.sh "$prev_tag" "$GITHUB_REF_NAME"
-            if [ -n "$prev_tag" ]; then
-              echo
-              echo "**Full diff:** https://github.com/${GITHUB_REPOSITORY}/compare/${prev_tag}...${GITHUB_REF_NAME}"
-            fi
-          } > notes.md
+          ./scripts/release-body.sh "$GITHUB_REF_NAME" "$prev_tag" > notes.md
           gh release create "$GITHUB_REF_NAME" dist/*.dmg \
             --title "$GITHUB_REF_NAME" \
             --notes-file notes.md \
