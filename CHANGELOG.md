@@ -6,7 +6,23 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.4] — 2026-10-17
+
 ### Added
+
+- **DMG verification.** `scripts/verify-dmg.sh` checks a built DMG the way a user's Mac will
+  (checksum, layout, version, arm64, whole-bundle signature, bundled rclone, Gatekeeper's verdict
+  after a simulated download) without launching the app. It runs at the end of `build-release.sh`,
+  so the release workflow fails on a bad DMG.
+- **`scripts/bench-mount.py`** benchmarks a live mount: listing time, upload and cold-read
+  speed measured on the wire (`nettop`), flagging reads answered from a cache.
+- **Cloud mounts are faster to browse.** Google Drive, OneDrive, Dropbox and Box remotes default
+  to prefetching the folder tree, a 1 h directory cache and `--poll-interval 30s` (a Drive root
+  listing went from 43-47 s and a timeout to under 0.1 s). New per-remote settings: poll
+  interval, prefetch, parallel read streams (off by default: no gain measured) and, for Google
+  Drive, an opt-in "allow files flagged as malware/abuse".
+- **Google client ID guidance.** The Drive form explains that an empty client ID uses rclone's
+  shared, rate-limited client (being retired in 2026) and links to rclone's guide.
 
 - **Azure Blob, Backblaze B2 (native API) and Google Cloud Storage backends**, declared
   as descriptors; account keys and service-account JSON stay in the Keychain.
@@ -42,12 +58,27 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- NFS mounts wait up to 60 s per request (`timeo=600`) instead of 3 s.
+
 - **Generic backend model.** New rclone backends are declared as data
   (`BackendDescriptor`) and stored as `Backend.rclone`, so adding one no longer
   needs new `switch` arms in `SessionManager` or a hand-written form.
   Existing SFTP / S3 / FTP remotes and `remotes.json` are unchanged.
 
 ### Fixed
+
+- **"macsh is damaged and can't be opened" on install.** The release build had signing
+  disabled, so the app's signature did not cover its own contents and Gatekeeper could not
+  assess a downloaded copy. Apps are now sealed with an ad-hoc signature (users get the normal
+  "unidentified developer" prompt: right-click > Open or Privacy & Security > Open Anyway).
+- **Stale NFS mounts.** A dead rclone left its NFS mount behind, so macOS showed "Server
+  connections interrupted" and the next mount became `<name>-2`, `-3`, ... Leftovers are
+  unmounted at launch, an rclone that exits while mounted is detected (mount removed, remote
+  marked failed, retried if auto-mount is on), and SIGTERM/SIGINT now quit cleanly.
+- **Google Drive stopped working an hour after "Sign in again".** With a client ID but a blank
+  (kept) secret, sign-in silently used rclone's shared client, whose token the mount then could
+  not refresh (`unauthorized_client`). Half-filled client credentials are now refused, and
+  changing the client ID on an existing remote requires signing in again.
 
 - **Nightly builds publish again.** The rolling `nightly` release could not be recreated once
   GitHub's immutable releases were on ("tag_name was used by an immutable release"), so every
