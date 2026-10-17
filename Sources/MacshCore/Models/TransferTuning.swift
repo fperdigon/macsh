@@ -27,9 +27,15 @@ public struct TransferTuning: Codable, Equatable {
     /// `--drive-acknowledge-abuse`: allow downloading files Google flags as malware/abuse.
     /// Off by default; only meaningful for Google Drive.
     public var acknowledgeAbuse: Bool
+    /// Parallel ranged downloads per file (`--vfs-read-chunk-streams`). 0 = rclone's single
+    /// stream. A single stream from Google Drive measured 0.5-1.4 MB/s on a 31 MB/s link.
+    public var readChunkStreams: Int
+    /// Size of each parallel chunk (`--vfs-read-chunk-size`). Empty = rclone's 128M.
+    public var readChunkSize: String
 
     public init(cacheMode: VFSCacheMode, readAhead: String, bufferSize: String, cacheMaxSize: String, dirCacheTime: String, writeBack: String = "",
-                prefetchFolders: Bool = false, pollInterval: String = "", acknowledgeAbuse: Bool = false) {
+                prefetchFolders: Bool = false, pollInterval: String = "", acknowledgeAbuse: Bool = false,
+                readChunkStreams: Int = 0, readChunkSize: String = "") {
         self.cacheMode = cacheMode
         self.readAhead = readAhead
         self.bufferSize = bufferSize
@@ -39,6 +45,8 @@ public struct TransferTuning: Codable, Equatable {
         self.prefetchFolders = prefetchFolders
         self.pollInterval = pollInterval
         self.acknowledgeAbuse = acknowledgeAbuse
+        self.readChunkStreams = readChunkStreams
+        self.readChunkSize = readChunkSize
     }
 
     // Remotes saved before `writeBack` existed decode with it empty.
@@ -53,6 +61,8 @@ public struct TransferTuning: Codable, Equatable {
         prefetchFolders = try c.decodeIfPresent(Bool.self, forKey: .prefetchFolders) ?? false
         pollInterval = try c.decodeIfPresent(String.self, forKey: .pollInterval) ?? ""
         acknowledgeAbuse = try c.decodeIfPresent(Bool.self, forKey: .acknowledgeAbuse) ?? false
+        readChunkStreams = try c.decodeIfPresent(Int.self, forKey: .readChunkStreams) ?? 0
+        readChunkSize = try c.decodeIfPresent(String.self, forKey: .readChunkSize) ?? ""
     }
 
     /// WebDAV keeps the original conservative settings. NFS issues many small reads, so
@@ -73,6 +83,8 @@ public struct TransferTuning: Codable, Equatable {
             t.dirCacheTime = "1h"
             t.pollInterval = "30s"
             t.prefetchFolders = true
+            t.readChunkStreams = 4
+            t.readChunkSize = "32M"
         }
         return t
     }
@@ -92,7 +104,8 @@ public struct TransferTuning: Codable, Equatable {
 
     /// Returns a message if a field isn't a valid rclone size/duration.
     public func validate() -> String? {
-        for (label, v) in [("Read-ahead", readAhead), ("Buffer size", bufferSize), ("Max cache size", cacheMaxSize)]
+        if !(0...32).contains(readChunkStreams) { return "Parallel read streams must be 0 to 32" }
+        for (label, v) in [("Read-ahead", readAhead), ("Buffer size", bufferSize), ("Max cache size", cacheMaxSize), ("Read chunk size", readChunkSize)]
         where !v.isEmpty && v.range(of: #"^\d+[kKmMgGtT]?$"#, options: .regularExpression) == nil {
             return "\(label) must look like 128M or 5G"
         }
@@ -122,6 +135,8 @@ public struct TransferTuning: Codable, Equatable {
         if !readAhead.isEmpty { a += ["--vfs-read-ahead", readAhead] }
         if !bufferSize.isEmpty { a += ["--buffer-size", bufferSize] }
         if !writeBack.isEmpty { a += ["--vfs-write-back", writeBack] }
+        if readChunkStreams > 0 { a += ["--vfs-read-chunk-streams", String(readChunkStreams)] }
+        if !readChunkSize.isEmpty { a += ["--vfs-read-chunk-size", readChunkSize] }
         if prefetchFolders { a.append("--vfs-refresh") }
         if !pollInterval.isEmpty { a += ["--poll-interval", pollInterval] }
         if acknowledgeAbuse { a.append("--drive-acknowledge-abuse") }

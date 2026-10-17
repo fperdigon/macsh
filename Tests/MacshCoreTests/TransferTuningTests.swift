@@ -189,4 +189,43 @@ final class TransferTuningTests: XCTestCase {
         XCTAssertTrue(opts.contains("noresvport"))
         XCTAssertFalse(opts.contains("timeo=30,"))
     }
+
+    // MARK: parallel reads
+
+    func testDriveDefaultsReadInParallel() {
+        let t = TransferTuning.defaults(for: .nfs, backendType: "drive")
+        XCTAssertEqual(t.readChunkStreams, 4)
+        XCTAssertEqual(t.readChunkSize, "32M")
+        let args = t.serveArgs(liveUpdates: true)
+        XCTAssertEqual(args[(args.firstIndex(of: "--vfs-read-chunk-streams") ?? 0) + 1], "4")
+        XCTAssertEqual(args[(args.firstIndex(of: "--vfs-read-chunk-size") ?? 0) + 1], "32M")
+    }
+
+    func testOtherBackendsStaySingleStream() {
+        let t = TransferTuning.defaults(for: .nfs, backendType: "sftp")
+        XCTAssertEqual(t.readChunkStreams, 0)
+        let args = t.serveArgs(liveUpdates: true)
+        XCTAssertFalse(args.contains("--vfs-read-chunk-streams"))
+        XCTAssertFalse(args.contains("--vfs-read-chunk-size"))
+    }
+
+    func testParallelReadValidation() {
+        var t = TransferTuning.defaults(for: .nfs, backendType: "drive")
+        t.readChunkStreams = 33
+        XCTAssertNotNil(t.validate())
+        t.readChunkStreams = -1
+        XCTAssertNotNil(t.validate())
+        t.readChunkStreams = 8
+        t.readChunkSize = "big"
+        XCTAssertNotNil(t.validate())
+        t.readChunkSize = "16M"
+        XCTAssertNil(t.validate())
+    }
+
+    func testTuningSavedBeforeParallelReadsDecodesAsSingleStream() throws {
+        let json = #"{"cacheMode":"full","readAhead":"","bufferSize":"","cacheMaxSize":"","dirCacheTime":"10s","prefetchFolders":true}"#
+        let t = try JSONDecoder().decode(TransferTuning.self, from: Data(json.utf8))
+        XCTAssertEqual(t.readChunkStreams, 0)
+        XCTAssertEqual(t.readChunkSize, "")
+    }
 }

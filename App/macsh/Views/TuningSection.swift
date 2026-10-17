@@ -42,6 +42,12 @@ struct TuningSection: View {
                     textRow("Dir cache time", $tuning.dirCacheTime, "10s")
                     textRow("Write-back delay", $tuning.writeBack, "1s")
                     textRow("Poll interval", $tuning.pollInterval, "30s")
+                    LabeledContent("Parallel reads") {
+                        Stepper(value: $tuning.readChunkStreams, in: 0...32) {
+                            Text(tuning.readChunkStreams == 0 ? "Off (single stream)" : "\(tuning.readChunkStreams) streams per file")
+                        }
+                    }
+                    textRow("Read chunk size", $tuning.readChunkSize, "32M")
                     LabeledContent("Folders") {
                         Toggle("Prefetch folder structure at mount", isOn: $tuning.prefetchFolders)
                             .frame(maxWidth: .infinity, alignment: .leading)
