@@ -432,7 +432,7 @@ public final class SessionManager: ObservableObject {
             let envOverrides = prepared.envOverrides
             let remotePath = prepared.remotePath
             let logURL = logsDir.appendingPathComponent("\(remote.id.uuidString).log")
-            let tuning = remote.tuning ?? .defaults(for: remote.mountProtocol)
+            let tuning = remote.effectiveTuning
             let extraArgs = MountOptions.serveArgs(readOnly: remote.readOnly, bandwidthLimit: remote.bandwidthLimit)
             let runner = RcloneProcess(binary: rcloneBinary, logFile: logURL)
             let volname = mounter.volumeName(from: remote.name)

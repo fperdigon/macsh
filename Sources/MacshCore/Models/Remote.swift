@@ -36,6 +36,14 @@ public struct Remote: Codable, Equatable, Identifiable {
         self.bandwidthLimit = bandwidthLimit
     }
 
+    /// The tuning actually used when mounting: the saved one, or the defaults for this
+    /// remote's protocol and (for generic rclone backends) backend type.
+    public var effectiveTuning: TransferTuning {
+        if let tuning { return tuning }
+        if case .rclone(let cfg) = backend { return .defaults(for: mountProtocol, backendType: cfg.type) }
+        return .defaults(for: mountProtocol)
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id, name, backend, mountProtocol, autoMount, liveUpdates, tuning, readOnly, bandwidthLimit
     }

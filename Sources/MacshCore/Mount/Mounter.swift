@@ -84,9 +84,15 @@ public class Mounter {
     /// Defaults: NFSv3, no root squash, locallocks, vers=3 (rclone serve nfs default).
     /// NFS still goes through the legacy exec path; NetFS supports NFS too but the URL
     /// shape and option keys differ from the WebDAV path — left as a follow-up.
+    /// `timeo` is in tenths of a second: 60 s per attempt. The old 3 s made a cloud listing
+    /// that takes a few seconds look like a dead server ("Server connections interrupted").
+    static func nfsMountOptions(port: Int) -> String {
+        "vers=3,tcp,noresvport,port=\(port),mountport=\(port),nolocks,locallocks,soft,timeo=600,retrans=2,nfc,rsize=1048576,wsize=1048576"
+    }
+
     public func mountNFS(host: String, port: Int, exportPath: String, name: String, mountpoint: String) throws {
         let source = "\(host):\(exportPath)"
-        let opts = "vers=3,tcp,noresvport,port=\(port),mountport=\(port),nolocks,locallocks,soft,timeo=30,nfc,rsize=1048576,wsize=1048576"
+        let opts = Self.nfsMountOptions(port: port)
         try run(
             "/sbin/mount_nfs",
             args: ["-o", opts, source, mountpoint],
