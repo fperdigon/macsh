@@ -11,6 +11,8 @@ struct GenericFormDraft {
     var liveUpdates: Bool = true
     var mountProtocol: MountProtocol = .webdav
     var existingRemoteID: UUID? = nil
+    /// Plain option values when the form was opened, to notice a changed OAuth client.
+    private var originalValues: [String: String] = [:]
 
     init(descriptor: BackendDescriptor) {
         self.descriptor = descriptor
@@ -29,11 +31,14 @@ struct GenericFormDraft {
             for (k, v) in cfg.options { values[k] = v }
             remotePath = cfg.remotePath
         }
+        originalValues = values
     }
 
     func validate() -> String? {
         if name.trimmingCharacters(in: .whitespaces).isEmpty { return "Name required" }
         if let v = descriptor.validate(values: values, isEditing: existingRemoteID != nil) { return v }
+        if let v = descriptor.clientChangeNeedsSignIn(original: originalValues, values: values,
+                                                      isEditing: existingRemoteID != nil) { return v }
         return descriptor.validateRemotePath(remotePath)
     }
 
@@ -74,6 +79,11 @@ struct GenericBackendFormView: View {
                 }
                 ForEach(draft.descriptor.fields, id: \.key) { field in
                     LabeledContent(field.label) { fieldControl(field) }
+                    // Its own row, so the Client ID field keeps the standard row layout.
+                    if field.key == draft.descriptor.oauth?.clientIDKey,
+                       draft.descriptor.usesSharedClientID(values: draft.values) {
+                        sharedClientNote
+                    }
                 }
                 LabeledContent(draft.descriptor.remotePathLabel) {
                     TextField("", text: $draft.remotePath,
@@ -121,6 +131,22 @@ struct GenericBackendFormView: View {
         case .text, .url, .port:
             TextField("", text: binding(field.key), prompt: Text(field.placeholder))
                 .textFieldStyle(.roundedBorder)
+        }
+    }
+
+    /// Shown under an empty Client ID: the shared one is slow and going away.
+    private var sharedClientNote: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Empty uses rclone's shared client ID: heavily rate limited (slow downloads) and being retired by Google/rclone in 2026. Use your own for speed and reliability.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let url = draft.descriptor.ownClientIDHelpURL {
+                Link("How to create your own client ID", destination: url).font(.caption)
+            }
+            if draft.existingRemoteID != nil {
+                Text("After entering it, press \"Sign in again…\" below.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 

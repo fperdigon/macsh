@@ -115,6 +115,36 @@ public struct BackendDescriptor: Equatable {
         return nil
     }
 
+    /// Where to learn how to create your own OAuth client, for backends where it matters.
+    public var ownClientIDHelpURL: URL? {
+        type == "drive" ? URL(string: "https://rclone.org/drive/#making-your-own-client-id") : nil
+    }
+
+    /// True when this backend signs in with OAuth but no client ID is set, so rclone's shared
+    /// one is used. Google rate-limits that shared client heavily (cold Drive reads measured
+    /// at 0.5-0.8 MB/s on a 31 MB/s link) and rclone is retiring it during 2026.
+    public func usesSharedClientID(values: [String: String]) -> Bool {
+        guard let key = oauth?.clientIDKey else { return false }
+        return (values[key] ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// An OAuth token is bound to the client that issued it. When editing, changing the
+    /// client ID (or its secret) without signing in again leaves a token the new client
+    /// rejects. `values` holds the token only after a fresh sign-in (blank = keep saved).
+    public func clientChangeNeedsSignIn(original: [String: String], values: [String: String], isEditing: Bool) -> String? {
+        guard isEditing, let spec = oauth,
+              let tokenKey = fields.first(where: { $0.kind == .oauthToken })?.key else { return nil }
+        if !(values[tokenKey] ?? "").isEmpty { return nil }                       // signed in again
+        func norm(_ v: String?) -> String { (v ?? "").trimmingCharacters(in: .whitespaces) }
+        if let key = spec.clientIDKey, norm(original[key]) != norm(values[key]) {
+            return "You changed the client ID: use \"Sign in again…\" so the new client can authorize this account."
+        }
+        if let key = spec.clientSecretKey, !norm(values[key]).isEmpty {
+            return "You entered a client secret: use \"Sign in again…\" so it can authorize this account."
+        }
+        return nil
+    }
+
     /// Message if a required remote path is blank.
     public func validateRemotePath(_ path: String) -> String? {
         if remotePathRequired && path.trimmingCharacters(in: .whitespaces).isEmpty { return "\(remotePathLabel) required" }
