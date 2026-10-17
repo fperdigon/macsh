@@ -47,7 +47,7 @@ jobs:
         run: brew install xcodegen
 
       - name: Build DMGs
-        run: ./scripts/build-release.sh
+        run: ./scripts/build-release.sh   # also seals the apps and runs scripts/verify-dmg.sh
 
       - name: Disk usage after build
         if: always()
